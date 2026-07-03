@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -108,6 +108,12 @@ def run(argv, check=False):
 def notify(message):
     if shutil.which("notify-send"):
         run(["notify-send", APP_TITLE, message])
+
+
+def should_apply_window_opacity():
+    # GTK's top-level opacity is noticeably expensive on GNOME Wayland, especially
+    # while scrolling and when libadwaita dialogs push nested pages.
+    return os.environ.get("XDG_SESSION_TYPE", "").lower() != "wayland"
 
 
 def system_proxy_map():
@@ -625,7 +631,8 @@ def launch_gui():
             window = Adw.ApplicationWindow(application=self)
             window.set_title(APP_TITLE)
             window.set_default_size(560, 520)
-            window.set_opacity(DEFAULT_WINDOW_OPACITY)
+            if should_apply_window_opacity():
+                window.set_opacity(DEFAULT_WINDOW_OPACITY)
             self._window = window
 
             toolbar_view = Adw.ToolbarView()
@@ -745,17 +752,44 @@ def launch_gui():
             )
 
         def _show_about(self):
-            about = Adw.AboutWindow(transient_for=self._window, modal=True)
-            about.set_application_name(APP_TITLE)
-            about.set_application_icon(APP_ID)
-            about.set_version(APP_VERSION)
-            about.set_developer_name(APP_REPOSITORY_OWNER)
-            about.set_developers([APP_REPOSITORY_OWNER])
-            about.set_comments(tr(APP_COMMENT_ZH, APP_COMMENT_EN))
-            about.set_website(APP_REPOSITORY_URL)
-            about.set_issue_url(f"{APP_REPOSITORY_URL}/issues")
-            about.set_license_type(Gtk.License.MIT_X11)
-            about.present()
+            dialog = Adw.MessageDialog(
+                transient_for=self._window,
+                modal=True,
+                heading=APP_TITLE,
+                body=tr(
+                    f"{APP_COMMENT_ZH}\n\n版本 {APP_VERSION}\n仓库：{APP_REPOSITORY_URL}",
+                    f"{APP_COMMENT_EN}\n\nVersion {APP_VERSION}\nRepository: {APP_REPOSITORY_URL}",
+                ),
+            )
+            dialog.add_response("close", tr("关闭", "Close"))
+            dialog.add_response("license", tr("许可证", "License"))
+            dialog.add_response("repository", tr("打开仓库", "Open Repository"))
+            dialog.set_default_response("close")
+            dialog.set_response_appearance("repository", Adw.ResponseAppearance.SUGGESTED)
+            dialog.connect("response", self._about_response)
+            dialog.present()
+
+        def _about_response(self, _dialog, response):
+            if response == "repository":
+                self._open_repository()
+            elif response == "license":
+                GLib.idle_add(self._show_license)
+
+        def _open_repository(self):
+            try:
+                Gtk.show_uri(self._window, APP_REPOSITORY_URL, Gdk.CURRENT_TIME)
+            except Exception as exc:
+                self._show_message(tr("无法打开仓库", "Could Not Open Repository"), str(exc))
+
+        def _show_license(self):
+            self._show_message(
+                tr("许可证", "License"),
+                tr(
+                    "本项目使用 MIT 许可证开源。完整许可证见仓库中的 LICENSE 文件。",
+                    "This project is open source under the MIT License. See the LICENSE file in the repository for the full text.",
+                ),
+            )
+            return GLib.SOURCE_REMOVE
 
         def _show_message(self, heading, body):
             dialog = Adw.MessageDialog(transient_for=self._window, modal=True, heading=heading, body=body)
@@ -863,13 +897,6 @@ def launch_gui():
             scale.set_value_pos(Gtk.PositionType.RIGHT)
             scale.set_hexpand(True)
             scale.set_size_request(240, -1)
-            scroll = Gtk.EventControllerScroll.new(
-                Gtk.EventControllerScrollFlags.HORIZONTAL
-                | Gtk.EventControllerScrollFlags.VERTICAL
-            )
-            scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-            scroll.connect("scroll", lambda _controller, _dx, _dy: True)
-            scale.add_controller(scroll)
             scale.connect("value-changed", lambda widget: callback(widget.get_value() / 100.0))
             row.add_suffix(scale)
             return row, scale
