@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.4"
+APP_VERSION = "0.1.5"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -57,28 +57,45 @@ STALE_TITLEBAR_RE = re.compile(
 )
 
 CLEARFRAME_GUI_CSS = """
-.clearframe-status-accent {
-  background-image: linear-gradient(180deg, #48df93, #19a86a);
-  border-radius: 999px;
+.clearframe-page {
+  background-color: @window_bg_color;
 }
 
-.clearframe-status-heading {
+.clearframe-brand-title {
   color: @window_fg_color;
-  font-size: 26px;
-  font-weight: 800;
+  font-size: 28px;
+  font-weight: 850;
+}
+
+.clearframe-version-pill {
+  background-color: alpha(@window_fg_color, 0.06);
+  border-radius: 999px;
+  color: alpha(@window_fg_color, 0.66);
+  padding: 6px 16px;
 }
 
 .clearframe-status-card {
   background-image: linear-gradient(112deg, @card_bg_color 0%, @card_bg_color 58%, alpha(#2ec27e, 0.16) 100%);
-  border: 1px solid alpha(@borders, 0.45);
-  border-radius: 18px;
-  box-shadow: 0 16px 36px alpha(#000000, 0.10);
+  border: 1px solid alpha(#2ec27e, 0.22);
+  border-radius: 20px;
+  box-shadow: 0 18px 42px alpha(#000000, 0.10);
   padding: 22px;
 }
 
+.clearframe-status-dot {
+  background-color: #33c978;
+  border-radius: 999px;
+}
+
+.clearframe-status-kicker {
+  color: @window_fg_color;
+  font-size: 15px;
+  font-weight: 750;
+}
+
 .clearframe-status-icon-ring {
-  background-color: alpha(#2ec27e, 0.10);
-  border: 1px solid alpha(#2ec27e, 0.20);
+  background-color: alpha(#2ec27e, 0.12);
+  border: 1px solid alpha(#2ec27e, 0.18);
   border-radius: 999px;
   padding: 12px;
 }
@@ -90,8 +107,8 @@ CLEARFRAME_GUI_CSS = """
 
 .clearframe-status-main-title {
   color: @window_fg_color;
-  font-size: 24px;
-  font-weight: 800;
+  font-size: 27px;
+  font-weight: 850;
 }
 
 .clearframe-status-subtitle {
@@ -99,10 +116,18 @@ CLEARFRAME_GUI_CSS = """
   font-size: 14px;
 }
 
+.clearframe-status-watermark {
+  color: alpha(#2ec27e, 0.13);
+}
+
+.clearframe-status-watermark.waiting {
+  color: alpha(#f5c211, 0.18);
+}
+
 .clearframe-status-strip {
   background-color: alpha(@window_bg_color, 0.70);
-  border: 1px solid alpha(@borders, 0.38);
-  border-radius: 12px;
+  border: 1px solid alpha(@borders, 0.35);
+  border-radius: 13px;
   padding: 10px;
 }
 
@@ -121,6 +146,82 @@ CLEARFRAME_GUI_CSS = """
 .clearframe-status-metric-label {
   font-size: 13px;
   font-weight: 650;
+}
+
+.clearframe-section-card {
+  background-color: @card_bg_color;
+  border: 1px solid alpha(@borders, 0.40);
+  border-radius: 18px;
+  box-shadow: 0 14px 32px alpha(#000000, 0.08);
+  padding: 18px;
+}
+
+.clearframe-section-title {
+  color: @window_fg_color;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.clearframe-section-icon {
+  border-radius: 9px;
+  padding: 6px;
+}
+
+.clearframe-section-icon.blue {
+  background-color: alpha(#3584e4, 0.12);
+  color: #3584e4;
+}
+
+.clearframe-section-icon.purple {
+  background-color: alpha(#9141ac, 0.13);
+  color: #9141ac;
+}
+
+.clearframe-control-panel {
+  background-color: alpha(@window_bg_color, 0.58);
+  border: 1px solid alpha(@borders, 0.36);
+  border-radius: 15px;
+}
+
+.clearframe-control-row {
+  padding: 13px 18px;
+}
+
+.clearframe-control-label {
+  color: @window_fg_color;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.clearframe-control-value {
+  color: alpha(@window_fg_color, 0.60);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.clearframe-switch:checked {
+  background-color: #ff5b1f;
+}
+
+.clearframe-scale trough highlight {
+  background-color: #ff5b1f;
+}
+
+.clearframe-scale slider {
+  background-color: @window_bg_color;
+  border: 1px solid alpha(@borders, 0.42);
+  box-shadow: 0 3px 8px alpha(#000000, 0.12);
+}
+
+.clearframe-note {
+  background-color: alpha(#3584e4, 0.10);
+  border-radius: 13px;
+  color: alpha(@window_fg_color, 0.72);
+  padding: 12px 16px;
+}
+
+.clearframe-note image {
+  color: #3584e4;
 }
 """
 
@@ -665,6 +766,11 @@ def launch_gui():
         category=DeprecationWarning,
         message=r".*Adw\.PreferencesWindow\.add.*",
     )
+    warnings.filterwarnings(
+        "ignore",
+        category=DeprecationWarning,
+        message=r".*Adw\.AboutWindow\..*",
+    )
 
     import gi
 
@@ -684,6 +790,7 @@ def launch_gui():
             self._status_metric_items = []
             self._status_icon_ring = None
             self._status_icon = None
+            self._status_watermark_icon = None
             self._toast_overlay = None
             self._update_button = None
             self._window = None
@@ -696,27 +803,28 @@ def launch_gui():
 
             window = Adw.ApplicationWindow(application=self)
             window.set_title(APP_TITLE)
-            window.set_default_size(560, 520)
+            window.set_default_size(640, 760)
             self._window = window
 
             toolbar_view = Adw.ToolbarView()
             header_bar = Adw.HeaderBar()
-            header_bar.set_title_widget(
-                Adw.WindowTitle(
-                    title=APP_TITLE,
-                    subtitle=tr(f"版本 {APP_VERSION}", f"Version {APP_VERSION}"),
-                )
-            )
+            header_bar.set_show_title(False)
             header_bar.pack_start(self._settings_button())
             toolbar_view.add_top_bar(header_bar)
 
-            page = Adw.PreferencesPage()
-            page.set_title(tr("透明", "Transparency"))
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
+            page.add_css_class("clearframe-page")
+            page.set_margin_top(18)
+            page.set_margin_bottom(22)
+            page.set_margin_start(34)
+            page.set_margin_end(34)
 
+            self._add_brand_header(page)
             self._add_system_group(page)
             self._add_dock_group(page)
             self._add_topbar_group(page)
             self._add_window_group(page)
+            self._add_note(page)
 
             scrolled_window = Gtk.ScrolledWindow()
             scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -744,6 +852,20 @@ def launch_gui():
                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
             )
             self._styles_installed = True
+
+        def _add_brand_header(self, page):
+            header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            header.set_halign(Gtk.Align.CENTER)
+
+            title = Gtk.Label(label=APP_TITLE)
+            title.add_css_class("clearframe-brand-title")
+
+            version = Gtk.Label(label=tr(f"版本 {APP_VERSION}", f"Version {APP_VERSION}"))
+            version.add_css_class("clearframe-version-pill")
+
+            header.append(title)
+            header.append(version)
+            page.append(header)
 
         def _settings_button(self):
             button = Gtk.MenuButton()
@@ -933,53 +1055,59 @@ def launch_gui():
             return GLib.SOURCE_REMOVE
 
         def _switch_row(self, title, active, callback):
-            row = Adw.ActionRow(title=title)
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
+            row.add_css_class("clearframe-control-row")
+
+            label = Gtk.Label(label=title, xalign=0)
+            label.add_css_class("clearframe-control-label")
+            label.set_hexpand(True)
+            label.set_wrap(True)
+
             switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+            switch.add_css_class("clearframe-switch")
             switch.set_active(active)
             switch.connect("notify::active", lambda widget, _pspec: callback(widget.get_active()))
-            row.add_suffix(switch)
-            row.set_activatable_widget(switch)
+
+            row.append(label)
+            row.append(switch)
             return row, switch
 
         def _scale_row(self, title, value, callback):
-            row = Adw.ActionRow(title=title)
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
+            row.add_css_class("clearframe-control-row")
+
+            label = Gtk.Label(label=title, xalign=0)
+            label.add_css_class("clearframe-control-label")
+            label.set_wrap(True)
+            label.set_width_chars(12)
+
             scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
             scale.set_value(round(clamp(value) * 100))
-            scale.set_draw_value(True)
-            scale.set_value_pos(Gtk.PositionType.RIGHT)
+            scale.set_draw_value(False)
             scale.set_hexpand(True)
-            scale.set_size_request(240, -1)
-            scale.connect("value-changed", lambda widget: callback(widget.get_value() / 100.0))
-            row.add_suffix(scale)
+            scale.set_size_request(190, -1)
+            scale.add_css_class("clearframe-scale")
+
+            value_label = Gtk.Label(label=str(round(clamp(value) * 100)))
+            value_label.add_css_class("clearframe-control-value")
+            value_label.set_width_chars(3)
+            value_label.set_xalign(1)
+
+            def value_changed(widget):
+                value_label.set_label(str(round(widget.get_value())))
+                callback(widget.get_value() / 100.0)
+
+            scale.connect("value-changed", value_changed)
+            row.append(label)
+            row.append(scale)
+            row.append(value_label)
             return row, scale
 
         def _add_system_group(self, page):
-            group = Adw.PreferencesGroup()
-            section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-            section.set_margin_top(4)
-            section.set_margin_bottom(6)
-
-            header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            header.set_margin_start(6)
-            header.set_margin_end(6)
-
-            accent = Gtk.Box()
-            accent.add_css_class("clearframe-status-accent")
-            accent.set_size_request(7, 30)
-            accent.set_valign(Gtk.Align.CENTER)
-
-            heading = Gtk.Label(label=tr("状态", "Status"), xalign=0)
-            heading.add_css_class("clearframe-status-heading")
-            heading.set_hexpand(True)
-
-            header.append(accent)
-            header.append(heading)
-            section.append(header)
-
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
             card.add_css_class("clearframe-status-card")
 
-            hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
+            hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
             hero.set_valign(Gtk.Align.CENTER)
 
             self._status_icon_ring = Gtk.Box()
@@ -1000,6 +1128,16 @@ def launch_gui():
             copy.set_hexpand(True)
             copy.set_valign(Gtk.Align.CENTER)
 
+            kicker = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            dot = Gtk.Box()
+            dot.add_css_class("clearframe-status-dot")
+            dot.set_size_request(11, 11)
+            dot.set_valign(Gtk.Align.CENTER)
+            kicker_label = Gtk.Label(label=tr("状态", "Status"), xalign=0)
+            kicker_label.add_css_class("clearframe-status-kicker")
+            kicker.append(dot)
+            kicker.append(kicker_label)
+
             self._status_title_label = Gtk.Label(xalign=0)
             self._status_title_label.add_css_class("clearframe-status-main-title")
             self._status_title_label.set_wrap(True)
@@ -1008,11 +1146,19 @@ def launch_gui():
             self._status_subtitle_label.add_css_class("clearframe-status-subtitle")
             self._status_subtitle_label.set_wrap(True)
 
+            copy.append(kicker)
             copy.append(self._status_title_label)
             copy.append(self._status_subtitle_label)
 
+            self._status_watermark_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+            self._status_watermark_icon.add_css_class("clearframe-status-watermark")
+            self._status_watermark_icon.set_pixel_size(104)
+            self._status_watermark_icon.set_halign(Gtk.Align.END)
+            self._status_watermark_icon.set_valign(Gtk.Align.CENTER)
+
             hero.append(self._status_icon_ring)
             hero.append(copy)
+            hero.append(self._status_watermark_icon)
             card.append(hero)
 
             metrics = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -1029,9 +1175,7 @@ def launch_gui():
                 metrics.append(metric)
             card.append(metrics)
 
-            section.append(card)
-            group.add(section)
-            page.add(group)
+            page.append(card)
 
         def _status_metric(self, label):
             metric = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
@@ -1051,33 +1195,84 @@ def launch_gui():
             metric.append(text)
             return metric, icon, text
 
+        def _control_panel(self, page, title, icon_name, icon_class):
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+            card.add_css_class("clearframe-section-card")
+
+            header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            header.set_margin_start(4)
+            header.set_margin_end(4)
+
+            icon = Gtk.Image.new_from_icon_name(icon_name)
+            icon.set_pixel_size(24)
+            icon.add_css_class("clearframe-section-icon")
+            icon.add_css_class(icon_class)
+
+            title_label = Gtk.Label(label=title, xalign=0)
+            title_label.add_css_class("clearframe-section-title")
+            title_label.set_hexpand(True)
+
+            header.append(icon)
+            header.append(title_label)
+
+            panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            panel.add_css_class("clearframe-control-panel")
+
+            card.append(header)
+            card.append(panel)
+            page.append(card)
+            return panel
+
+        def _add_control_separator(self, panel):
+            separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            separator.set_margin_start(18)
+            separator.set_margin_end(18)
+            panel.append(separator)
+
         def _add_dock_group(self, page):
-            group = Adw.PreferencesGroup(title="Dock")
+            panel = self._control_panel(page, "Dock", "video-display-symbolic", "blue")
             row, _switch = self._switch_row(tr("Dock 透明", "Dock Transparency"), dock_enabled(), self._dock_toggled)
-            group.add(row)
+            panel.append(row)
+            self._add_control_separator(panel)
             dock_value = dock_transparency() if dock_enabled() else saved_dock_transparency()
             row, self._dock_scale = self._scale_row(tr("Dock 透明度", "Dock Transparency Amount"), dock_value, self._dock_opacity_changed)
-            group.add(row)
-            page.add(group)
+            panel.append(row)
 
         def _add_topbar_group(self, page):
-            group = Adw.PreferencesGroup(title=tr("顶栏", "Top Bar"))
+            panel = self._control_panel(page, tr("顶栏", "Top Bar"), "selection-mode-symbolic", "purple")
             topbar_enabled = self._settings.get_boolean("topbar-enabled")
             topbar_opacity = self._settings.get_double("topbar-opacity")
             row, _switch = self._switch_row(tr("顶栏透明", "Top Bar Transparency"), topbar_enabled, self._topbar_toggled)
-            group.add(row)
+            panel.append(row)
+            self._add_control_separator(panel)
             row, _scale = self._scale_row(tr("顶栏透明度", "Top Bar Transparency Amount"), topbar_opacity, self._topbar_opacity_changed)
-            group.add(row)
-            page.add(group)
+            panel.append(row)
 
         def _add_window_group(self, page):
-            group = Adw.PreferencesGroup(title=tr("窗口", "Windows"))
+            panel = self._control_panel(page, tr("窗口", "Windows"), "view-grid-symbolic", "blue")
             window_enabled, window_opacity = window_state()
             row, _switch = self._switch_row(tr("窗口整体透明", "Whole-Window Transparency"), window_enabled, self._window_toggled)
-            group.add(row)
+            panel.append(row)
+            self._add_control_separator(panel)
             row, _scale = self._scale_row(tr("窗口整体透明度", "Whole-Window Transparency Amount"), window_opacity, self._window_opacity_changed)
-            group.add(row)
-            page.add(group)
+            panel.append(row)
+
+        def _add_note(self, page):
+            note = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            note.add_css_class("clearframe-note")
+
+            icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
+            icon.set_pixel_size(18)
+            icon.set_valign(Gtk.Align.CENTER)
+
+            text = Gtk.Label(label=tr("提示：修改设置后效果会实时生效，无需重启。", "Tip: Changes apply live without restarting."))
+            text.set_xalign(0)
+            text.set_wrap(True)
+            text.set_hexpand(True)
+
+            note.append(icon)
+            note.append(text)
+            page.append(note)
 
         def _dock_toggled(self, active):
             value = self._dock_scale.get_value() / 100.0 if self._dock_scale else saved_dock_transparency()
@@ -1155,6 +1350,14 @@ def launch_gui():
                 else:
                     self._status_icon.set_from_icon_name(icon_name)
                 self._status_icon.set_pixel_size(56)
+
+            if self._status_watermark_icon:
+                self._status_watermark_icon.set_from_icon_name(icon_name)
+                self._status_watermark_icon.set_pixel_size(104)
+                if known:
+                    self._status_watermark_icon.remove_css_class("waiting")
+                else:
+                    self._status_watermark_icon.add_css_class("waiting")
 
             for item, text in zip(self._status_metric_items, metrics):
                 metric, metric_icon, metric_label = item
