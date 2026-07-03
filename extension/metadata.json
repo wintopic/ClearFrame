@@ -1,0 +1,11 @@
+{
+  "uuid": "clearframe@win.local",
+  "name": "ClearFrame",
+  "description": "Controls GNOME Dock, top bar, and whole-window transparency for ClearFrame.",
+  "shell-version": [
+    "50"
+  ],
+  "settings-schema": "org.gnome.shell.extensions.clearframe",
+  "version": 1,
+  "version-name": "0.1.0"
+}

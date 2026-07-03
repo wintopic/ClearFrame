@@ -1,0 +1,13 @@
+#panel.clearframe-topbar,
+#panel.clearframe-topbar.solid,
+#panel.clearframe-topbar:overview,
+#panel.clearframe-topbar.unlock-screen,
+#panel.clearframe-topbar.login-screen {
+  background-color: rgba(0, 0, 0, 0);
+  box-shadow: none;
+  border: 0;
+}
+
+#panel.clearframe-topbar .panel-button {
+  background-color: rgba(0, 0, 0, 0);
+}

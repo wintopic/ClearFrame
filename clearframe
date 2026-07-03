@@ -1,0 +1,1024 @@
+#!/usr/bin/env python3
+import argparse
+import ast
+import filecmp
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import urllib.error
+import urllib.parse
+import urllib.request
+import warnings
+from pathlib import Path
+
+APP_ID = "local.win.ClearFrame"
+APP_NAME_EN = "ClearFrame"
+APP_NAME_ZH = "透界"
+APP_VERSION = "0.1.0"
+APP_REPOSITORY_OWNER = "wintopic"
+APP_REPOSITORY_NAME = "ClearFrame"
+APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
+APP_LATEST_RELEASE_API = f"https://api.github.com/repos/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}/releases/latest"
+APP_USER_AGENT = f"{APP_NAME_EN}/{APP_VERSION}"
+APP_COMMENT_EN = "Control Dock, top bar, and whole-window transparency"
+APP_COMMENT_ZH = "控制 Dock、顶栏和窗口整体透明"
+EXT_DESCRIPTION_EN = "Controls GNOME Dock, top bar, and whole-window transparency for ClearFrame."
+EXT_DESCRIPTION_ZH = "控制 GNOME Dock、顶栏和窗口整体透明。"
+APP_EXECUTABLE = "clearframe"
+EXT_UUID = "clearframe@win.local"
+SCHEMA_ID = "org.gnome.shell.extensions.clearframe"
+DEFAULT_WINDOW_OPACITY = 0.94
+
+BASE_DIR = Path(__file__).resolve().parent
+CONFIG_DIR = Path.home() / ".config" / "clearframe"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+CONFIG_LANGUAGE_CHOICES = {"system", "zh", "en"}
+APP_INSTALL_DIR = Path.home() / ".local/share/clearframe"
+APP_ICON_SRC = BASE_DIR / "icon.png"
+STATUS_CORRECT_SVG = BASE_DIR / "status-correct.svg"
+APP_ICON_SIZE = 512
+APP_ICON_RADIUS = 96
+EXT_SRC = BASE_DIR / "extension"
+EXT_DST = Path.home() / ".local/share/gnome-shell/extensions" / EXT_UUID
+APPLICATIONS_DIR = Path.home() / ".local/share/applications"
+ICON_THEME_DIR = Path.home() / ".local/share/icons/hicolor"
+EXT_SYNC_FILES = (
+    Path("extension.js"),
+    Path("stylesheet.css"),
+    Path("schemas") / f"{SCHEMA_ID}.gschema.xml",
+)
+
+STALE_TITLEBAR_RE = re.compile(
+    r"\n?/\* BEGIN [^*]* titlebar \*/.*?/\* END [^*]* titlebar \*/\n?",
+    re.S,
+)
+
+
+def chinese_locale():
+    for key in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        for value in os.environ.get(key, "").split(":"):
+            if value.lower().startswith("zh"):
+                return True
+    return False
+
+
+def load_config():
+    try:
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_config(config):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def active_language():
+    language = load_config().get("language", "system")
+    return language if language in CONFIG_LANGUAGE_CHOICES else "system"
+
+
+def use_chinese():
+    language = active_language()
+    if language == "zh":
+        return True
+    if language == "en":
+        return False
+    return chinese_locale()
+
+
+USE_ZH = use_chinese()
+APP_TITLE = APP_NAME_ZH if USE_ZH else APP_NAME_EN
+
+
+def tr(zh, en):
+    return zh if USE_ZH else en
+
+
+def run(argv, check=False):
+    return subprocess.run(argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=check)
+
+
+def notify(message):
+    if shutil.which("notify-send"):
+        run(["notify-send", APP_TITLE, message])
+
+
+def system_proxy_map():
+    try:
+        import gi
+
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio
+    except Exception:
+        return {}
+
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None or source.lookup("org.gnome.system.proxy", True) is None:
+        return {}
+
+    proxy_settings = Gio.Settings.new("org.gnome.system.proxy")
+    if proxy_settings.get_string("mode") != "manual":
+        return {}
+
+    proxies = {}
+    for scheme, schema_id in (
+        ("http", "org.gnome.system.proxy.http"),
+        ("https", "org.gnome.system.proxy.https"),
+    ):
+        if source.lookup(schema_id, True) is None:
+            continue
+        settings = Gio.Settings.new(schema_id)
+        host = settings.get_string("host")
+        port = settings.get_int("port")
+        if not host or port <= 0:
+            continue
+
+        userinfo = ""
+        if schema_id.endswith(".http") and settings.get_boolean("use-authentication"):
+            user = urllib.parse.quote(settings.get_string("authentication-user"), safe="")
+            password = urllib.parse.quote(settings.get_string("authentication-password"), safe="")
+            if user:
+                userinfo = f"{user}:{password}@"
+
+        proxies[scheme] = f"{scheme}://{userinfo}{host}:{port}"
+
+    return proxies
+
+
+def url_opener():
+    proxies = urllib.request.getproxies()
+    proxies.update(system_proxy_map())
+    handlers = [urllib.request.ProxyHandler(proxies)] if proxies else []
+    return urllib.request.build_opener(*handlers)
+
+
+def request_headers():
+    return {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": APP_USER_AGENT,
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def normalized_version(value):
+    match = re.search(r"(\d+(?:\.\d+)*)", value or "")
+    if not match:
+        return ()
+    return tuple(int(part) for part in match.group(1).split("."))
+
+
+def newer_version(remote, local=APP_VERSION):
+    remote_parts = normalized_version(remote)
+    local_parts = normalized_version(local)
+    width = max(len(remote_parts), len(local_parts))
+    return remote_parts + (0,) * (width - len(remote_parts)) > local_parts + (0,) * (width - len(local_parts))
+
+
+def safe_download_name(name):
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", name or "").strip(".-")
+    return cleaned or f"{APP_REPOSITORY_NAME}.zip"
+
+
+def unique_path(path):
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    for index in range(1, 1000):
+        candidate = path.with_name(f"{stem}-{index}{suffix}")
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(tr("无法生成下载文件名", "Could not create a download filename"))
+
+
+def latest_release():
+    request = urllib.request.Request(APP_LATEST_RELEASE_API, headers=request_headers())
+    try:
+        with url_opener().open(request, timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise RuntimeError(f"HTTP {error.code}: {error.reason}") from error
+
+    tag = data.get("tag_name") or data.get("name") or ""
+    assets = data.get("assets") or []
+    asset = next((item for item in assets if item.get("browser_download_url")), None)
+    download_url = asset.get("browser_download_url") if asset else data.get("zipball_url")
+    file_name = asset.get("name") if asset else f"{APP_REPOSITORY_NAME}-{tag or 'latest'}.zip"
+    return {
+        "tag": tag,
+        "version": normalized_version(tag) and tag.lstrip("vV") or tag,
+        "html_url": data.get("html_url") or f"{APP_REPOSITORY_URL}/releases/latest",
+        "download_url": download_url,
+        "file_name": safe_download_name(file_name),
+    }
+
+
+def download_release(release):
+    download_url = release.get("download_url")
+    if not download_url:
+        raise RuntimeError(tr("没有可下载的更新文件。", "No downloadable update file is available."))
+
+    target_dir = Path.home() / "Downloads"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = unique_path(target_dir / safe_download_name(release.get("file_name")))
+    request = urllib.request.Request(download_url, headers=request_headers())
+    with url_opener().open(request, timeout=60) as response, target.open("wb") as output:
+        shutil.copyfileobj(response, output)
+    return target
+
+
+def clamp(value, minimum=0.0, maximum=1.0):
+    return max(minimum, min(maximum, float(value)))
+
+
+def schema_exists(schema):
+    result = run(["gsettings", "list-schemas"])
+    return schema in result.stdout.splitlines()
+
+
+def gsettings_get(schema, key, fallback=None):
+    result = run(["gsettings", "get", schema, key])
+    if result.returncode != 0:
+        return fallback
+    return result.stdout.strip()
+
+
+def gsettings_set(schema, key, value):
+    return run(["gsettings", "set", schema, key, str(value)]).returncode == 0
+
+
+def gsettings_reset(schema, key):
+    run(["gsettings", "reset", schema, key])
+
+
+def compile_schemas(schema_dir):
+    if schema_dir.exists() and shutil.which("glib-compile-schemas"):
+        run(["glib-compile-schemas", str(schema_dir)], check=True)
+
+
+def ensure_source_schemas():
+    compile_schemas(EXT_SRC / "schemas")
+
+
+def same_path(left, right):
+    try:
+        return left.resolve() == right.resolve()
+    except FileNotFoundError:
+        return False
+
+
+def install_app_icon():
+    if not APP_ICON_SRC.exists():
+        return
+
+    icon_dir = ICON_THEME_DIR / "512x512/apps"
+    icon_dir.mkdir(parents=True, exist_ok=True)
+    icon_file = icon_dir / f"{APP_ID}.png"
+
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        shutil.copy2(APP_ICON_SRC, icon_file)
+        return
+
+    image = Image.open(APP_ICON_SRC).convert("RGBA")
+    width, height = image.size
+    side = min(width, height)
+    left = (width - side) // 2
+    top = (height - side) // 2
+    image = image.crop((left, top, left + side, top + side))
+    image = image.resize((APP_ICON_SIZE, APP_ICON_SIZE), Image.Resampling.LANCZOS)
+
+    mask = Image.new("L", (APP_ICON_SIZE, APP_ICON_SIZE), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle(
+        (0, 0, APP_ICON_SIZE - 1, APP_ICON_SIZE - 1),
+        radius=APP_ICON_RADIUS,
+        fill=255,
+    )
+    image.putalpha(mask)
+    image.save(icon_file, "PNG", optimize=True)
+
+
+def refresh_desktop_caches():
+    if shutil.which("update-desktop-database"):
+        run(["update-desktop-database", str(APPLICATIONS_DIR)])
+    if shutil.which("gtk-update-icon-cache"):
+        run(["gtk-update-icon-cache", "-q", "-t", "-f", str(ICON_THEME_DIR)])
+
+
+def desktop_entry_text():
+    return f"""[Desktop Entry]
+Type=Application
+Name={APP_NAME_EN}
+Name[zh]={APP_NAME_ZH}
+Name[zh_CN]={APP_NAME_ZH}
+Comment={APP_COMMENT_EN}
+Comment[zh]={APP_COMMENT_ZH}
+Comment[zh_CN]={APP_COMMENT_ZH}
+Exec={APP_INSTALL_DIR / APP_EXECUTABLE} gui
+Icon={APP_ID}
+Terminal=false
+Categories=Settings;
+StartupNotify=true
+"""
+
+
+def install_desktop_entry():
+    APPLICATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    desktop_file = APPLICATIONS_DIR / f"{APP_ID}.desktop"
+    desktop_file.write_text(desktop_entry_text(), encoding="utf-8")
+
+
+def write_extension_metadata(metadata_file):
+    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    metadata["name"] = APP_TITLE
+    metadata["description"] = tr(EXT_DESCRIPTION_ZH, EXT_DESCRIPTION_EN)
+    metadata["version-name"] = APP_VERSION
+    metadata_file.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def install_app_files():
+    if same_path(BASE_DIR, APP_INSTALL_DIR):
+        return
+
+    if APP_INSTALL_DIR.exists():
+        shutil.rmtree(APP_INSTALL_DIR)
+    APP_INSTALL_DIR.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        BASE_DIR,
+        APP_INSTALL_DIR,
+        ignore=shutil.ignore_patterns("__pycache__", "gschemas.compiled", ".git"),
+    )
+
+
+def load_settings():
+    import gi
+
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio
+
+    ensure_source_schemas()
+    schema_dir = EXT_DST / "schemas"
+    if not (schema_dir / "gschemas.compiled").exists():
+        schema_dir = EXT_SRC / "schemas"
+
+    source = Gio.SettingsSchemaSource.new_from_directory(
+        str(schema_dir),
+        Gio.SettingsSchemaSource.get_default(),
+        False,
+    )
+    schema = source.lookup(SCHEMA_ID, False)
+    if schema is None:
+        raise RuntimeError(tr(f"找不到设置 schema: {SCHEMA_ID}", f"Could not find settings schema: {SCHEMA_ID}"))
+    return Gio.Settings.new_full(schema, None, None)
+
+
+def enabled_extensions():
+    raw = gsettings_get("org.gnome.shell", "enabled-extensions", "[]")
+    try:
+        value = ast.literal_eval(raw)
+    except Exception:
+        return []
+    return value if isinstance(value, list) else []
+
+
+def set_enabled_extension(uuid, enabled):
+    items = enabled_extensions()
+    if enabled and uuid not in items:
+        items.append(uuid)
+    if not enabled:
+        items = [item for item in items if item != uuid]
+    gsettings_set("org.gnome.shell", "enabled-extensions", repr(items))
+
+
+def shell_knows_extension(uuid=EXT_UUID):
+    return run(["gnome-extensions", "info", uuid]).returncode == 0
+
+
+def shell_extension_should_run(settings):
+    return (
+        settings.get_boolean("topbar-enabled")
+        or settings.get_boolean("window-enabled")
+    )
+
+
+def sync_shell_extension(settings):
+    active = shell_extension_should_run(settings)
+    set_enabled_extension(EXT_UUID, active)
+    if shell_knows_extension():
+        action = "enable" if active else "disable"
+        result = run(["gnome-extensions", action, EXT_UUID])
+        return result.returncode == 0
+    return False
+
+
+def extension_needs_install():
+    if not (EXT_DST / "metadata.json").exists():
+        return True
+    if not (EXT_DST / "schemas" / "gschemas.compiled").exists():
+        return True
+
+    for relative_path in EXT_SYNC_FILES:
+        source = EXT_SRC / relative_path
+        target = EXT_DST / relative_path
+        if not target.exists() or not filecmp.cmp(source, target, shallow=False):
+            return True
+    return False
+
+
+def ensure_extension_installed():
+    if extension_needs_install():
+        install_extension()
+
+
+def install_extension():
+    ensure_source_schemas()
+    install_app_icon()
+    if EXT_DST.exists():
+        shutil.rmtree(EXT_DST)
+    EXT_DST.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(EXT_SRC, EXT_DST)
+    write_extension_metadata(EXT_DST / "metadata.json")
+    compile_schemas(EXT_DST / "schemas")
+
+    refresh_desktop_caches()
+
+
+def install_all():
+    install_app_files()
+    install_app_icon()
+    install_desktop_entry()
+    install_extension()
+    sync_shell_extension(load_settings())
+
+
+def set_topbar(enabled, transparency=None):
+    ensure_extension_installed()
+    settings = load_settings()
+    if transparency is not None:
+        settings.set_double("topbar-opacity", clamp(transparency))
+    settings.set_boolean("topbar-enabled", bool(enabled))
+
+    return sync_shell_extension(settings)
+
+
+def set_window_transparency(enabled, transparency=None):
+    ensure_extension_installed()
+    settings = load_settings()
+    if transparency is not None:
+        settings.set_double("window-opacity", clamp(transparency))
+    settings.set_boolean("window-enabled", bool(enabled))
+
+    return sync_shell_extension(settings)
+
+
+def dock_supported():
+    return schema_exists("org.gnome.shell.extensions.dash-to-dock")
+
+
+def dock_transparency():
+    if not dock_supported():
+        return 0.0
+    raw = gsettings_get("org.gnome.shell.extensions.dash-to-dock", "background-opacity", "1.0")
+    try:
+        return clamp(1.0 - float(raw))
+    except ValueError:
+        return 0.0
+
+
+def dock_enabled():
+    if not dock_supported():
+        return False
+    mode = gsettings_get("org.gnome.shell.extensions.dash-to-dock", "transparency-mode", "")
+    return mode == "'FIXED'" and dock_transparency() > 0
+
+
+def saved_dock_transparency(fallback=1.0):
+    try:
+        ensure_extension_installed()
+        return clamp(load_settings().get_double("dock-opacity"))
+    except Exception:
+        return clamp(fallback)
+
+
+def save_dock_transparency(transparency):
+    try:
+        ensure_extension_installed()
+        load_settings().set_double("dock-opacity", clamp(transparency))
+    except Exception:
+        pass
+
+
+def set_dock(enabled, transparency=None):
+    if not dock_supported():
+        return False
+    if enabled:
+        value = saved_dock_transparency(dock_transparency()) if transparency is None else clamp(transparency)
+        save_dock_transparency(value)
+        gsettings_set("org.gnome.shell.extensions.dash-to-dock", "transparency-mode", "'FIXED'")
+        gsettings_set("org.gnome.shell.extensions.dash-to-dock", "background-opacity", 1.0 - value)
+    else:
+        gsettings_reset("org.gnome.shell.extensions.dash-to-dock", "transparency-mode")
+        gsettings_reset("org.gnome.shell.extensions.dash-to-dock", "background-opacity")
+    return True
+
+
+def remove_stale_titlebar_block(text):
+    stripped = STALE_TITLEBAR_RE.sub("\n", text).strip()
+    return stripped + ("\n" if stripped else "")
+
+
+def cleanup_titlebar_css():
+    for gtk_dir in (Path.home() / ".config/gtk-3.0", Path.home() / ".config/gtk-4.0"):
+        gtk_dir.mkdir(parents=True, exist_ok=True)
+        css_file = gtk_dir / "gtk.css"
+        current = css_file.read_text(encoding="utf-8") if css_file.exists() else ""
+        updated = remove_stale_titlebar_block(current)
+        css_file.write_text(updated, encoding="utf-8")
+
+
+def window_state():
+    settings = load_settings()
+    return settings.get_boolean("window-enabled"), settings.get_double("window-opacity")
+
+
+def enable_all():
+    set_dock(True, 1.0)
+    set_window_transparency(False)
+    topbar_live = set_topbar(True, 1.0)
+    cleanup_titlebar_css()
+    message = tr(
+        "已开启 Dock 和顶栏透明，窗口整体透明保持关闭。",
+        "Dock and top bar transparency are on. Whole-window transparency remains off.",
+    )
+    if not topbar_live:
+        message += tr(
+            " 顶栏首次安装可能需要注销并重新登录。",
+            " You may need to log out and back in the first time the top bar extension is installed.",
+        )
+    notify(message)
+    print(message)
+
+
+def disable_all():
+    set_dock(False)
+    set_window_transparency(False)
+    set_topbar(False)
+    cleanup_titlebar_css()
+    message = tr("已关闭透明效果。", "Transparency effects are off.")
+    notify(message)
+    print(message)
+
+
+def print_status():
+    settings = load_settings()
+    enabled = tr("开", "on")
+    disabled = tr("关", "off")
+    yes = tr("是", "yes")
+    no = tr("否", "no")
+    print(f"Dock: {enabled if dock_enabled() else disabled} {dock_transparency():.2f}")
+    print(f"{tr('顶栏', 'Top bar')}: {enabled if settings.get_boolean('topbar-enabled') else disabled} {settings.get_double('topbar-opacity'):.2f}")
+    print(f"{tr('窗口', 'Window')}: {enabled if settings.get_boolean('window-enabled') else disabled} {settings.get_double('window-opacity'):.2f}")
+    print(f"{tr('Shell 已识别扩展', 'Shell extension known')}: {yes if shell_knows_extension() else no}")
+
+
+def launch_gui():
+    warnings.filterwarnings(
+        "ignore",
+        category=DeprecationWarning,
+        message=r".*Adw\.PreferencesWindow\.add.*",
+    )
+
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+
+    class ClearFrameApp(Adw.Application):
+        def __init__(self):
+            super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+            self._updating = False
+            self._settings = None
+            self._dock_scale = None
+            self._status_row = None
+            self._status_icon = None
+            self._toast_overlay = None
+            self._update_button = None
+            self._window = None
+
+        def do_activate(self):
+            ensure_extension_installed()
+            self._settings = load_settings()
+            sync_shell_extension(self._settings)
+
+            window = Adw.ApplicationWindow(application=self)
+            window.set_title(APP_TITLE)
+            window.set_default_size(560, 520)
+            window.set_opacity(DEFAULT_WINDOW_OPACITY)
+            self._window = window
+
+            toolbar_view = Adw.ToolbarView()
+            header_bar = Adw.HeaderBar()
+            header_bar.set_title_widget(
+                Adw.WindowTitle(
+                    title=APP_TITLE,
+                    subtitle=tr(f"版本 {APP_VERSION}", f"Version {APP_VERSION}"),
+                )
+            )
+            header_bar.pack_start(self._settings_button())
+            toolbar_view.add_top_bar(header_bar)
+
+            page = Adw.PreferencesPage()
+            page.set_title(tr("透明", "Transparency"))
+
+            self._add_system_group(page)
+            self._add_dock_group(page)
+            self._add_topbar_group(page)
+            self._add_window_group(page)
+
+            scrolled_window = Gtk.ScrolledWindow()
+            scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scrolled_window.set_child(page)
+
+            self._toast_overlay = Adw.ToastOverlay()
+            self._toast_overlay.set_child(scrolled_window)
+            toolbar_view.set_content(self._toast_overlay)
+            window.set_content(toolbar_view)
+
+            self._set_status()
+            window.present()
+
+        def _settings_button(self):
+            button = Gtk.MenuButton()
+            button.set_icon_name("open-menu-symbolic")
+            button.set_tooltip_text(tr("设置", "Settings"))
+            button.set_popover(self._settings_popover())
+            return button
+
+        def _settings_popover(self):
+            popover = Gtk.Popover()
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            box.set_margin_top(12)
+            box.set_margin_bottom(12)
+            box.set_margin_start(12)
+            box.set_margin_end(12)
+            box.set_size_request(260, -1)
+
+            title = Gtk.Label(label=tr("设置", "Settings"), xalign=0)
+            title.add_css_class("heading")
+            box.append(title)
+
+            language_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            language_label = Gtk.Label(label=tr("语言", "Language"), xalign=0)
+            language_label.set_hexpand(True)
+            language_dropdown = Gtk.DropDown.new_from_strings([tr("跟随系统", "System"), "中文", "English"])
+            languages = ("system", "zh", "en")
+            language_dropdown.set_selected(languages.index(active_language()))
+            language_dropdown.connect("notify::selected", self._language_changed)
+            language_row.append(language_label)
+            language_row.append(language_dropdown)
+            box.append(language_row)
+
+            box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+            self._update_button = self._menu_action_button(
+                tr("检查系统更新", "Check for Updates"),
+                "software-update-available-symbolic",
+                lambda _button: self._check_updates(),
+            )
+            box.append(self._update_button)
+
+            about_button = self._menu_action_button(
+                tr("关于", "About"),
+                "help-about-symbolic",
+                lambda _button: self._show_about(),
+            )
+            box.append(about_button)
+
+            version = Gtk.Label(label=tr(f"版本 {APP_VERSION}", f"Version {APP_VERSION}"), xalign=0)
+            version.add_css_class("dim-label")
+            box.append(version)
+
+            popover.set_child(box)
+            return popover
+
+        def _menu_action_button(self, label, icon_name, callback):
+            button = Gtk.Button()
+            button.set_halign(Gtk.Align.FILL)
+            content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            image = Gtk.Image.new_from_icon_name(icon_name)
+            text = Gtk.Label(label=label, xalign=0)
+            text.set_hexpand(True)
+            content.append(image)
+            content.append(text)
+            button.set_child(content)
+            button.connect("clicked", callback)
+            return button
+
+        def _language_changed(self, dropdown, _pspec):
+            languages = ("system", "zh", "en")
+            selected = dropdown.get_selected()
+            if selected >= len(languages):
+                return
+
+            language = languages[selected]
+            config = load_config()
+            if config.get("language", "system") == language:
+                return
+
+            config["language"] = language
+            save_config(config)
+            self._show_message(
+                tr("语言已保存", "Language Saved"),
+                tr("重新打开透界后会应用新的语言。", "Restart ClearFrame to apply the new language."),
+            )
+
+        def _show_about(self):
+            about = Adw.AboutWindow(transient_for=self._window, modal=True)
+            about.set_application_name(APP_TITLE)
+            about.set_application_icon(APP_ID)
+            about.set_version(APP_VERSION)
+            about.set_developer_name(APP_REPOSITORY_OWNER)
+            about.set_developers([APP_REPOSITORY_OWNER])
+            about.set_comments(tr(APP_COMMENT_ZH, APP_COMMENT_EN))
+            about.set_website(APP_REPOSITORY_URL)
+            about.set_issue_url(f"{APP_REPOSITORY_URL}/issues")
+            about.set_license_type(Gtk.License.MIT_X11)
+            about.present()
+
+        def _show_message(self, heading, body):
+            dialog = Adw.MessageDialog(transient_for=self._window, modal=True, heading=heading, body=body)
+            dialog.add_response("ok", tr("知道了", "OK"))
+            dialog.set_default_response("ok")
+            dialog.present()
+
+        def _add_toast(self, message):
+            if self._toast_overlay:
+                self._toast_overlay.add_toast(Adw.Toast.new(message))
+
+        def _check_updates(self):
+            if self._update_button:
+                self._update_button.set_sensitive(False)
+            self._add_toast(tr("正在检查系统更新...", "Checking for updates..."))
+            threading.Thread(target=self._check_updates_worker, daemon=True).start()
+
+        def _check_updates_worker(self):
+            try:
+                release = latest_release()
+                error = None
+            except Exception as exc:
+                release = None
+                error = str(exc)
+            GLib.idle_add(self._finish_update_check, release, error)
+
+        def _finish_update_check(self, release, error):
+            if self._update_button:
+                self._update_button.set_sensitive(True)
+            if error:
+                self._show_message(tr("更新检查失败", "Update Check Failed"), error)
+            elif release is None:
+                self._show_message(
+                    tr("暂无发布版本", "No Release Found"),
+                    tr("当前仓库还没有可用于系统更新的 GitHub Release。", "This repository has no GitHub Release available for updates yet."),
+                )
+            elif newer_version(release.get("version") or release.get("tag")):
+                self._show_update_dialog(release)
+            else:
+                self._show_message(
+                    tr("已经是最新版本", "Already Up to Date"),
+                    tr(f"当前版本 {APP_VERSION}。", f"Current version is {APP_VERSION}."),
+                )
+            return GLib.SOURCE_REMOVE
+
+        def _show_update_dialog(self, release):
+            version = release.get("version") or release.get("tag") or tr("新版本", "New version")
+            dialog = Adw.MessageDialog(
+                transient_for=self._window,
+                modal=True,
+                heading=tr("发现新版本", "Update Available"),
+                body=tr(
+                    f"当前版本 {APP_VERSION}，最新版本 {version}。\n{release.get('html_url', APP_REPOSITORY_URL)}",
+                    f"Current version is {APP_VERSION}; latest version is {version}.\n{release.get('html_url', APP_REPOSITORY_URL)}",
+                ),
+            )
+            dialog.add_response("later", tr("稍后", "Later"))
+            dialog.add_response("download", tr("下载更新", "Download"))
+            dialog.set_default_response("download")
+            dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
+            dialog.connect("response", lambda _dialog, response: self._download_update(release) if response == "download" else None)
+            dialog.present()
+
+        def _download_update(self, release):
+            if self._update_button:
+                self._update_button.set_sensitive(False)
+            self._add_toast(tr("正在下载更新...", "Downloading update..."))
+            threading.Thread(target=self._download_update_worker, args=(release,), daemon=True).start()
+
+        def _download_update_worker(self, release):
+            try:
+                target = download_release(release)
+                error = None
+            except Exception as exc:
+                target = None
+                error = str(exc)
+            GLib.idle_add(self._finish_update_download, target, error)
+
+        def _finish_update_download(self, target, error):
+            if self._update_button:
+                self._update_button.set_sensitive(True)
+            if error:
+                self._show_message(tr("下载失败", "Download Failed"), error)
+            else:
+                self._show_message(
+                    tr("更新已下载", "Update Downloaded"),
+                    tr(f"文件已保存到：{target}", f"Saved to: {target}"),
+                )
+            return GLib.SOURCE_REMOVE
+
+        def _switch_row(self, title, active, callback):
+            row = Adw.ActionRow(title=title)
+            switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+            switch.set_active(active)
+            switch.connect("notify::active", lambda widget, _pspec: callback(widget.get_active()))
+            row.add_suffix(switch)
+            row.set_activatable_widget(switch)
+            return row, switch
+
+        def _scale_row(self, title, value, callback):
+            row = Adw.ActionRow(title=title)
+            scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+            scale.set_value(round(clamp(value) * 100))
+            scale.set_draw_value(True)
+            scale.set_value_pos(Gtk.PositionType.RIGHT)
+            scale.set_hexpand(True)
+            scale.set_size_request(240, -1)
+            scroll = Gtk.EventControllerScroll.new(
+                Gtk.EventControllerScrollFlags.HORIZONTAL
+                | Gtk.EventControllerScrollFlags.VERTICAL
+            )
+            scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            scroll.connect("scroll", lambda _controller, _dx, _dy: True)
+            scale.add_controller(scroll)
+            scale.connect("value-changed", lambda widget: callback(widget.get_value() / 100.0))
+            row.add_suffix(scale)
+            return row, scale
+
+        def _add_system_group(self, page):
+            group = Adw.PreferencesGroup(title=tr("状态", "Status"))
+            self._status_row = Adw.ActionRow(title=tr("顶栏和窗口扩展", "Top Bar and Window Extension"))
+            if STATUS_CORRECT_SVG.exists():
+                self._status_icon = Gtk.Image.new_from_file(str(STATUS_CORRECT_SVG))
+            else:
+                self._status_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+            self._status_icon.set_pixel_size(34)
+            self._status_icon.set_tooltip_text(tr("配置正确", "Configuration is correct"))
+            self._status_row.add_suffix(self._status_icon)
+            group.add(self._status_row)
+            page.add(group)
+
+        def _add_dock_group(self, page):
+            group = Adw.PreferencesGroup(title="Dock")
+            row, _switch = self._switch_row(tr("Dock 透明", "Dock Transparency"), dock_enabled(), self._dock_toggled)
+            group.add(row)
+            dock_value = dock_transparency() if dock_enabled() else saved_dock_transparency()
+            row, self._dock_scale = self._scale_row(tr("Dock 透明度", "Dock Transparency Amount"), dock_value, self._dock_opacity_changed)
+            group.add(row)
+            page.add(group)
+
+        def _add_topbar_group(self, page):
+            group = Adw.PreferencesGroup(title=tr("顶栏", "Top Bar"))
+            topbar_enabled = self._settings.get_boolean("topbar-enabled")
+            topbar_opacity = self._settings.get_double("topbar-opacity")
+            row, _switch = self._switch_row(tr("顶栏透明", "Top Bar Transparency"), topbar_enabled, self._topbar_toggled)
+            group.add(row)
+            row, _scale = self._scale_row(tr("顶栏透明度", "Top Bar Transparency Amount"), topbar_opacity, self._topbar_opacity_changed)
+            group.add(row)
+            page.add(group)
+
+        def _add_window_group(self, page):
+            group = Adw.PreferencesGroup(title=tr("窗口", "Windows"))
+            window_enabled, window_opacity = window_state()
+            row, _switch = self._switch_row(tr("窗口整体透明", "Whole-Window Transparency"), window_enabled, self._window_toggled)
+            group.add(row)
+            row, _scale = self._scale_row(tr("窗口整体透明度", "Whole-Window Transparency Amount"), window_opacity, self._window_opacity_changed)
+            group.add(row)
+            page.add(group)
+
+        def _dock_toggled(self, active):
+            value = self._dock_scale.get_value() / 100.0 if self._dock_scale else saved_dock_transparency()
+            save_dock_transparency(value)
+            set_dock(active, value if active else None)
+            self._set_status(tr("Dock 设置已更新", "Dock settings updated"))
+
+        def _dock_opacity_changed(self, value):
+            save_dock_transparency(value)
+            if dock_enabled():
+                set_dock(True, value)
+                self._set_status(tr("Dock 透明度已更新", "Dock transparency updated"))
+
+        def _topbar_toggled(self, active):
+            live = set_topbar(active, self._settings.get_double("topbar-opacity"))
+            if active and not live:
+                self._set_status(tr("顶栏扩展已启用，重新登录后生效", "Top bar extension enabled; log out and back in to apply"))
+            else:
+                self._set_status(tr("顶栏设置已更新", "Top bar settings updated"))
+
+        def _topbar_opacity_changed(self, value):
+            self._settings.set_double("topbar-opacity", clamp(value))
+            if self._settings.get_boolean("topbar-enabled"):
+                set_enabled_extension(EXT_UUID, True)
+            self._set_status(tr("顶栏透明度已更新", "Top bar transparency updated"))
+
+        def _window_toggled(self, active):
+            live = set_window_transparency(active, self._settings.get_double("window-opacity"))
+            if active and not live:
+                self._set_status(tr("窗口整体透明已启用，重新登录后生效", "Whole-window transparency enabled; log out and back in to apply"))
+            else:
+                self._set_status(tr("窗口整体透明设置已更新", "Whole-window transparency settings updated"))
+
+        def _window_opacity_changed(self, value):
+            self._settings.set_double("window-opacity", clamp(value))
+            if self._settings.get_boolean("window-enabled"):
+                set_enabled_extension(EXT_UUID, True)
+            self._set_status(tr("窗口整体透明度已更新", "Whole-window transparency updated"))
+
+        def _set_status(self, prefix=None):
+            known = shell_knows_extension()
+            if known:
+                title = tr("配置正确", "Configuration OK")
+                subtitle = tr("Shell 已识别扩展，设置会实时生效", "Shell recognizes the extension; settings apply live")
+            else:
+                title = tr("等待 Shell 识别", "Waiting for Shell")
+                subtitle = tr("首次安装可能需要注销并重新登录", "Log out and back in after first install")
+            if prefix:
+                subtitle = f"{prefix} · {subtitle}"
+            self._status_row.set_title(title)
+            self._status_row.set_subtitle(subtitle)
+            if self._status_icon:
+                self._status_icon.set_visible(known)
+
+    app = ClearFrameApp()
+    return app.run([])
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=APP_TITLE)
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="gui",
+        choices=["gui", "install", "on", "off", "status", "window-on", "window-off"],
+    )
+    args = parser.parse_args(argv)
+
+    if args.command == "gui":
+        return launch_gui()
+    if args.command == "install":
+        install_all()
+        print(tr("透界 已安装/刷新。", "ClearFrame installed/refreshed."))
+        return 0
+    if args.command == "on":
+        enable_all()
+        return 0
+    if args.command == "off":
+        disable_all()
+        return 0
+    if args.command == "window-on":
+        live = set_window_transparency(True, 0.25)
+        message = tr(
+            "已开启窗口整体透明，透明度 0.25。",
+            "Whole-window transparency is on at 0.25.",
+        )
+        if not live:
+            message += tr(
+                " 扩展首次安装可能需要注销并重新登录。",
+                " You may need to log out and back in the first time the extension is installed.",
+            )
+        notify(message)
+        print(message)
+        return 0
+    if args.command == "window-off":
+        set_window_transparency(False)
+        message = tr("已关闭窗口整体透明。", "Whole-window transparency is off.")
+        notify(message)
+        print(message)
+        return 0
+    if args.command == "status":
+        print_status()
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

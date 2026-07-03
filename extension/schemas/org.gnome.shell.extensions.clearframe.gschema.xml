@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.clearframe" path="/org/gnome/shell/extensions/clearframe/">
+    <key name="topbar-enabled" type="b">
+      <default>true</default>
+      <summary>Top bar transparency enabled</summary>
+    </key>
+    <key name="topbar-opacity" type="d">
+      <range min="0.0" max="1.0"/>
+      <default>1.0</default>
+      <summary>Top bar transparency amount</summary>
+    </key>
+    <key name="dock-opacity" type="d">
+      <range min="0.0" max="1.0"/>
+      <default>1.0</default>
+      <summary>Dock transparency amount</summary>
+    </key>
+    <key name="window-enabled" type="b">
+      <default>false</default>
+      <summary>Whole window transparency enabled</summary>
+    </key>
+    <key name="window-opacity" type="d">
+      <range min="0.0" max="1.0"/>
+      <default>0.25</default>
+      <summary>Whole window transparency amount</summary>
+    </key>
+  </schema>
+</schemalist>
