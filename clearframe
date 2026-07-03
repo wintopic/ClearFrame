@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.6"
+APP_VERSION = "0.1.7"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -61,26 +61,6 @@ CLEARFRAME_GUI_CSS = """
   background-color: @window_bg_color;
 }
 
-.clearframe-status-section {
-  margin-top: 8px;
-}
-
-.clearframe-status-heading-row {
-  margin-left: 4px;
-  margin-bottom: 18px;
-}
-
-.clearframe-status-accent {
-  background-image: linear-gradient(180deg, #48df93, #19a86a);
-  border-radius: 999px;
-}
-
-.clearframe-status-heading {
-  color: @window_fg_color;
-  font-size: 34px;
-  font-weight: 850;
-}
-
 .clearframe-status-card {
   background-image: linear-gradient(112deg, @card_bg_color 0%, @card_bg_color 62%, alpha(#2ec27e, 0.16) 100%);
   border: 1px solid alpha(#2ec27e, 0.22);
@@ -107,9 +87,8 @@ CLEARFRAME_GUI_CSS = """
   font-weight: 850;
 }
 
-.clearframe-status-subtitle {
-  color: alpha(@window_fg_color, 0.68);
-  font-size: 17px;
+.clearframe-status-dot-matrix {
+  opacity: 1;
 }
 
 .clearframe-status-strip {
@@ -774,11 +753,9 @@ def launch_gui():
             self._dock_scale = None
             self._styles_installed = False
             self._status_title_label = None
-            self._status_subtitle_label = None
             self._status_metric_items = []
             self._status_icon_ring = None
             self._status_icon = None
-            self._status_watermark_icon = None
             self._toast_overlay = None
             self._update_button = None
             self._window = None
@@ -1084,42 +1061,33 @@ def launch_gui():
             return row, scale
 
         def _add_system_group(self, page):
-            section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-            section.add_css_class("clearframe-status-section")
-
-            heading_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            heading_row.add_css_class("clearframe-status-heading-row")
-
-            accent = Gtk.Box()
-            accent.add_css_class("clearframe-status-accent")
-            accent.set_size_request(8, 36)
-            accent.set_valign(Gtk.Align.CENTER)
-
-            heading = Gtk.Label(label=tr("状态", "Status"), xalign=0)
-            heading.add_css_class("clearframe-status-heading")
-            heading.set_hexpand(True)
-
-            heading_row.append(accent)
-            heading_row.append(heading)
-            section.append(heading_row)
-
-            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+            card = Gtk.Overlay()
             card.add_css_class("clearframe-status-card")
+
+            dot_matrix = self._icon_image("dot-matrix", 156)
+            dot_matrix.add_css_class("clearframe-status-dot-matrix")
+            dot_matrix.set_halign(Gtk.Align.END)
+            dot_matrix.set_valign(Gtk.Align.START)
+
+            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+            content.set_hexpand(True)
 
             hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=30)
             hero.set_valign(Gtk.Align.CENTER)
 
-            self._status_icon_ring = Gtk.Box()
+            self._status_icon_ring = Gtk.CenterBox()
             self._status_icon_ring.add_css_class("clearframe-status-icon-ring")
             self._status_icon_ring.set_size_request(116, 116)
             self._status_icon_ring.set_halign(Gtk.Align.CENTER)
             self._status_icon_ring.set_valign(Gtk.Align.CENTER)
 
-            self._status_icon = self._icon_image("status-shield", 70)
+            self._status_icon = self._icon_image("status-shield", 72)
+            self._status_icon.set_halign(Gtk.Align.CENTER)
+            self._status_icon.set_valign(Gtk.Align.CENTER)
             self._status_icon.set_tooltip_text(tr("配置正确", "Configuration is correct"))
-            self._status_icon_ring.append(self._status_icon)
+            self._status_icon_ring.set_center_widget(self._status_icon)
 
-            copy = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            copy = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
             copy.set_hexpand(True)
             copy.set_valign(Gtk.Align.CENTER)
 
@@ -1127,21 +1095,11 @@ def launch_gui():
             self._status_title_label.add_css_class("clearframe-status-main-title")
             self._status_title_label.set_wrap(True)
 
-            self._status_subtitle_label = Gtk.Label(xalign=0)
-            self._status_subtitle_label.add_css_class("clearframe-status-subtitle")
-            self._status_subtitle_label.set_wrap(True)
-
             copy.append(self._status_title_label)
-            copy.append(self._status_subtitle_label)
-
-            self._status_watermark_icon = self._icon_image("check-watermark", 118)
-            self._status_watermark_icon.set_halign(Gtk.Align.END)
-            self._status_watermark_icon.set_valign(Gtk.Align.CENTER)
 
             hero.append(self._status_icon_ring)
             hero.append(copy)
-            hero.append(self._status_watermark_icon)
-            card.append(hero)
+            content.append(hero)
 
             metrics = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             metrics.add_css_class("clearframe-status-strip")
@@ -1160,10 +1118,11 @@ def launch_gui():
                     separator.set_margin_top(6)
                     separator.set_margin_bottom(6)
                     metrics.append(separator)
-            card.append(metrics)
+            content.append(metrics)
 
-            section.append(card)
-            page.append(section)
+            card.set_child(content)
+            card.add_overlay(dot_matrix)
+            page.append(card)
 
         def _status_metric(self, label):
             metric = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
@@ -1302,7 +1261,6 @@ def launch_gui():
             known = shell_knows_extension()
             if known:
                 title = tr("配置正确", "Configuration OK")
-                subtitle = tr("Shell 已识别扩展，设置会实时生效", "Shell recognizes the extension; settings apply live")
                 metrics = (
                     tr("透明度已应用", "Applied"),
                     tr("扩展已识别", "Extension OK"),
@@ -1310,10 +1268,8 @@ def launch_gui():
                 )
                 status_icon_name = "status-shield"
                 metric_icon_name = "check-circle"
-                watermark_icon_name = "check-watermark"
             else:
                 title = tr("等待 Shell 识别", "Waiting for Shell")
-                subtitle = tr("首次安装可能需要注销并重新登录", "Log out and back in after first install")
                 metrics = (
                     tr("设置已保存", "Saved"),
                     tr("等待识别", "Waiting"),
@@ -1321,12 +1277,8 @@ def launch_gui():
                 )
                 status_icon_name = "warning-shield"
                 metric_icon_name = "warning-circle"
-                watermark_icon_name = "warning-watermark"
-            if prefix:
-                subtitle = f"{prefix} · {subtitle}"
 
             self._status_title_label.set_label(title)
-            self._status_subtitle_label.set_label(subtitle)
 
             if self._status_icon_ring:
                 if known:
@@ -1335,10 +1287,7 @@ def launch_gui():
                     self._status_icon_ring.add_css_class("waiting")
 
             if self._status_icon:
-                self._set_icon_image(self._status_icon, status_icon_name, 70)
-
-            if self._status_watermark_icon:
-                self._set_icon_image(self._status_watermark_icon, watermark_icon_name, 118)
+                self._set_icon_image(self._status_icon, status_icon_name, 72)
 
             for item, text in zip(self._status_metric_items, metrics):
                 metric, metric_icon, metric_label = item
