@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.5"
+APP_VERSION = "0.1.6"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -38,7 +38,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 CONFIG_LANGUAGE_CHOICES = {"system", "zh", "en"}
 APP_INSTALL_DIR = Path.home() / ".local/share/clearframe"
 APP_ICON_SRC = BASE_DIR / "icon.png"
-STATUS_CORRECT_SVG = BASE_DIR / "status-correct.svg"
+UI_ICON_DIR = BASE_DIR / "icons"
 APP_ICON_SIZE = 512
 APP_ICON_RADIUS = 96
 EXT_SRC = BASE_DIR / "extension"
@@ -61,36 +61,32 @@ CLEARFRAME_GUI_CSS = """
   background-color: @window_bg_color;
 }
 
-.clearframe-brand-title {
+.clearframe-status-section {
+  margin-top: 8px;
+}
+
+.clearframe-status-heading-row {
+  margin-left: 4px;
+  margin-bottom: 18px;
+}
+
+.clearframe-status-accent {
+  background-image: linear-gradient(180deg, #48df93, #19a86a);
+  border-radius: 999px;
+}
+
+.clearframe-status-heading {
   color: @window_fg_color;
-  font-size: 28px;
+  font-size: 34px;
   font-weight: 850;
 }
 
-.clearframe-version-pill {
-  background-color: alpha(@window_fg_color, 0.06);
-  border-radius: 999px;
-  color: alpha(@window_fg_color, 0.66);
-  padding: 6px 16px;
-}
-
 .clearframe-status-card {
-  background-image: linear-gradient(112deg, @card_bg_color 0%, @card_bg_color 58%, alpha(#2ec27e, 0.16) 100%);
+  background-image: linear-gradient(112deg, @card_bg_color 0%, @card_bg_color 62%, alpha(#2ec27e, 0.16) 100%);
   border: 1px solid alpha(#2ec27e, 0.22);
-  border-radius: 20px;
-  box-shadow: 0 18px 42px alpha(#000000, 0.10);
-  padding: 22px;
-}
-
-.clearframe-status-dot {
-  background-color: #33c978;
-  border-radius: 999px;
-}
-
-.clearframe-status-kicker {
-  color: @window_fg_color;
-  font-size: 15px;
-  font-weight: 750;
+  border-radius: 19px;
+  box-shadow: 0 20px 46px alpha(#000000, 0.12);
+  padding: 34px;
 }
 
 .clearframe-status-icon-ring {
@@ -107,45 +103,33 @@ CLEARFRAME_GUI_CSS = """
 
 .clearframe-status-main-title {
   color: @window_fg_color;
-  font-size: 27px;
+  font-size: 34px;
   font-weight: 850;
 }
 
 .clearframe-status-subtitle {
   color: alpha(@window_fg_color, 0.68);
-  font-size: 14px;
-}
-
-.clearframe-status-watermark {
-  color: alpha(#2ec27e, 0.13);
-}
-
-.clearframe-status-watermark.waiting {
-  color: alpha(#f5c211, 0.18);
+  font-size: 17px;
 }
 
 .clearframe-status-strip {
   background-color: alpha(@window_bg_color, 0.70);
   border: 1px solid alpha(@borders, 0.35);
-  border-radius: 13px;
-  padding: 10px;
+  border-radius: 14px;
+  padding: 12px 8px;
 }
 
 .clearframe-status-metric {
   color: alpha(@window_fg_color, 0.74);
 }
 
-.clearframe-status-metric image {
-  color: #22b36f;
-}
-
-.clearframe-status-metric.waiting image {
-  color: #b77900;
-}
-
 .clearframe-status-metric-label {
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 650;
+}
+
+.clearframe-menu-icon {
+  padding: 3px;
 }
 
 .clearframe-section-card {
@@ -276,6 +260,10 @@ def run(argv, check=False):
 def notify(message):
     if shutil.which("notify-send"):
         run(["notify-send", APP_TITLE, message])
+
+
+def ui_icon_path(name):
+    return UI_ICON_DIR / f"{name}.svg"
 
 
 def system_proxy_map():
@@ -803,23 +791,22 @@ def launch_gui():
 
             window = Adw.ApplicationWindow(application=self)
             window.set_title(APP_TITLE)
-            window.set_default_size(640, 760)
+            window.set_default_size(760, 760)
             self._window = window
 
             toolbar_view = Adw.ToolbarView()
             header_bar = Adw.HeaderBar()
-            header_bar.set_show_title(False)
+            header_bar.set_title_widget(Adw.WindowTitle(title=APP_TITLE, subtitle=""))
             header_bar.pack_start(self._settings_button())
             toolbar_view.add_top_bar(header_bar)
 
             page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
             page.add_css_class("clearframe-page")
-            page.set_margin_top(18)
-            page.set_margin_bottom(22)
-            page.set_margin_start(34)
-            page.set_margin_end(34)
+            page.set_margin_top(28)
+            page.set_margin_bottom(24)
+            page.set_margin_start(42)
+            page.set_margin_end(42)
 
-            self._add_brand_header(page)
             self._add_system_group(page)
             self._add_dock_group(page)
             self._add_topbar_group(page)
@@ -853,23 +840,19 @@ def launch_gui():
             )
             self._styles_installed = True
 
-        def _add_brand_header(self, page):
-            header = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            header.set_halign(Gtk.Align.CENTER)
+        def _icon_image(self, name, pixel_size):
+            image = Gtk.Image.new_from_file(str(ui_icon_path(name)))
+            image.set_pixel_size(pixel_size)
+            return image
 
-            title = Gtk.Label(label=APP_TITLE)
-            title.add_css_class("clearframe-brand-title")
-
-            version = Gtk.Label(label=tr(f"版本 {APP_VERSION}", f"Version {APP_VERSION}"))
-            version.add_css_class("clearframe-version-pill")
-
-            header.append(title)
-            header.append(version)
-            page.append(header)
+        def _set_icon_image(self, image, name, pixel_size):
+            image.set_from_file(str(ui_icon_path(name)))
+            image.set_pixel_size(pixel_size)
 
         def _settings_button(self):
             button = Gtk.MenuButton()
-            button.set_icon_name("open-menu-symbolic")
+            button.set_child(self._icon_image("settings", 18))
+            button.add_css_class("flat")
             button.set_tooltip_text(tr("设置", "Settings"))
             button.set_popover(self._settings_popover())
             return button
@@ -902,21 +885,17 @@ def launch_gui():
 
             self._update_button = self._menu_action_button(
                 tr("检测更新", "Check for Updates"),
-                "software-update-available-symbolic",
+                "update",
                 lambda _button: self._check_updates(),
             )
             box.append(self._update_button)
 
             about_button = self._menu_action_button(
                 tr("关于", "About"),
-                "help-about-symbolic",
+                "about",
                 lambda _button: self._show_about(),
             )
             box.append(about_button)
-
-            version = Gtk.Label(label=tr(f"版本 {APP_VERSION}", f"Version {APP_VERSION}"), xalign=0)
-            version.add_css_class("dim-label")
-            box.append(version)
 
             popover.set_child(box)
             return popover
@@ -925,7 +904,8 @@ def launch_gui():
             button = Gtk.Button()
             button.set_halign(Gtk.Align.FILL)
             content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            image = Gtk.Image.new_from_icon_name(icon_name)
+            image = self._icon_image(icon_name, 18)
+            image.add_css_class("clearframe-menu-icon")
             text = Gtk.Label(label=label, xalign=0)
             text.set_hexpand(True)
             content.append(image)
@@ -1104,39 +1084,44 @@ def launch_gui():
             return row, scale
 
         def _add_system_group(self, page):
+            section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            section.add_css_class("clearframe-status-section")
+
+            heading_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            heading_row.add_css_class("clearframe-status-heading-row")
+
+            accent = Gtk.Box()
+            accent.add_css_class("clearframe-status-accent")
+            accent.set_size_request(8, 36)
+            accent.set_valign(Gtk.Align.CENTER)
+
+            heading = Gtk.Label(label=tr("状态", "Status"), xalign=0)
+            heading.add_css_class("clearframe-status-heading")
+            heading.set_hexpand(True)
+
+            heading_row.append(accent)
+            heading_row.append(heading)
+            section.append(heading_row)
+
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
             card.add_css_class("clearframe-status-card")
 
-            hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+            hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=30)
             hero.set_valign(Gtk.Align.CENTER)
 
             self._status_icon_ring = Gtk.Box()
             self._status_icon_ring.add_css_class("clearframe-status-icon-ring")
-            self._status_icon_ring.set_size_request(92, 92)
+            self._status_icon_ring.set_size_request(116, 116)
             self._status_icon_ring.set_halign(Gtk.Align.CENTER)
             self._status_icon_ring.set_valign(Gtk.Align.CENTER)
 
-            if STATUS_CORRECT_SVG.exists():
-                self._status_icon = Gtk.Image.new_from_file(str(STATUS_CORRECT_SVG))
-            else:
-                self._status_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
-            self._status_icon.set_pixel_size(56)
+            self._status_icon = self._icon_image("status-shield", 70)
             self._status_icon.set_tooltip_text(tr("配置正确", "Configuration is correct"))
             self._status_icon_ring.append(self._status_icon)
 
             copy = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             copy.set_hexpand(True)
             copy.set_valign(Gtk.Align.CENTER)
-
-            kicker = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            dot = Gtk.Box()
-            dot.add_css_class("clearframe-status-dot")
-            dot.set_size_request(11, 11)
-            dot.set_valign(Gtk.Align.CENTER)
-            kicker_label = Gtk.Label(label=tr("状态", "Status"), xalign=0)
-            kicker_label.add_css_class("clearframe-status-kicker")
-            kicker.append(dot)
-            kicker.append(kicker_label)
 
             self._status_title_label = Gtk.Label(xalign=0)
             self._status_title_label.add_css_class("clearframe-status-main-title")
@@ -1146,13 +1131,10 @@ def launch_gui():
             self._status_subtitle_label.add_css_class("clearframe-status-subtitle")
             self._status_subtitle_label.set_wrap(True)
 
-            copy.append(kicker)
             copy.append(self._status_title_label)
             copy.append(self._status_subtitle_label)
 
-            self._status_watermark_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
-            self._status_watermark_icon.add_css_class("clearframe-status-watermark")
-            self._status_watermark_icon.set_pixel_size(104)
+            self._status_watermark_icon = self._icon_image("check-watermark", 118)
             self._status_watermark_icon.set_halign(Gtk.Align.END)
             self._status_watermark_icon.set_valign(Gtk.Align.CENTER)
 
@@ -1162,29 +1144,35 @@ def launch_gui():
             card.append(hero)
 
             metrics = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            metrics.set_homogeneous(True)
             metrics.add_css_class("clearframe-status-strip")
             self._status_metric_items = []
-            for label in (
+            labels = (
                 tr("透明度已应用", "Applied"),
                 tr("扩展已识别", "Extension OK"),
                 tr("实时生效", "Live"),
-            ):
+            )
+            for index, label in enumerate(labels):
                 metric, metric_icon, metric_label = self._status_metric(label)
                 self._status_metric_items.append((metric, metric_icon, metric_label))
                 metrics.append(metric)
+                if index < len(labels) - 1:
+                    separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+                    separator.set_margin_top(6)
+                    separator.set_margin_bottom(6)
+                    metrics.append(separator)
             card.append(metrics)
 
-            page.append(card)
+            section.append(card)
+            page.append(section)
 
         def _status_metric(self, label):
             metric = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
             metric.set_halign(Gtk.Align.CENTER)
             metric.set_valign(Gtk.Align.CENTER)
             metric.add_css_class("clearframe-status-metric")
+            metric.set_hexpand(True)
 
-            icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
-            icon.set_pixel_size(18)
+            icon = self._icon_image("check-circle", 24)
 
             text = Gtk.Label(label=label)
             text.add_css_class("clearframe-status-metric-label")
@@ -1203,8 +1191,7 @@ def launch_gui():
             header.set_margin_start(4)
             header.set_margin_end(4)
 
-            icon = Gtk.Image.new_from_icon_name(icon_name)
-            icon.set_pixel_size(24)
+            icon = self._icon_image(icon_name, 24)
             icon.add_css_class("clearframe-section-icon")
             icon.add_css_class(icon_class)
 
@@ -1230,7 +1217,7 @@ def launch_gui():
             panel.append(separator)
 
         def _add_dock_group(self, page):
-            panel = self._control_panel(page, "Dock", "video-display-symbolic", "blue")
+            panel = self._control_panel(page, "Dock", "dock", "blue")
             row, _switch = self._switch_row(tr("Dock 透明", "Dock Transparency"), dock_enabled(), self._dock_toggled)
             panel.append(row)
             self._add_control_separator(panel)
@@ -1239,7 +1226,7 @@ def launch_gui():
             panel.append(row)
 
         def _add_topbar_group(self, page):
-            panel = self._control_panel(page, tr("顶栏", "Top Bar"), "selection-mode-symbolic", "purple")
+            panel = self._control_panel(page, tr("顶栏", "Top Bar"), "topbar", "purple")
             topbar_enabled = self._settings.get_boolean("topbar-enabled")
             topbar_opacity = self._settings.get_double("topbar-opacity")
             row, _switch = self._switch_row(tr("顶栏透明", "Top Bar Transparency"), topbar_enabled, self._topbar_toggled)
@@ -1249,7 +1236,7 @@ def launch_gui():
             panel.append(row)
 
         def _add_window_group(self, page):
-            panel = self._control_panel(page, tr("窗口", "Windows"), "view-grid-symbolic", "blue")
+            panel = self._control_panel(page, tr("窗口", "Windows"), "window", "blue")
             window_enabled, window_opacity = window_state()
             row, _switch = self._switch_row(tr("窗口整体透明", "Whole-Window Transparency"), window_enabled, self._window_toggled)
             panel.append(row)
@@ -1261,8 +1248,7 @@ def launch_gui():
             note = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             note.add_css_class("clearframe-note")
 
-            icon = Gtk.Image.new_from_icon_name("dialog-information-symbolic")
-            icon.set_pixel_size(18)
+            icon = self._icon_image("info", 18)
             icon.set_valign(Gtk.Align.CENTER)
 
             text = Gtk.Label(label=tr("提示：修改设置后效果会实时生效，无需重启。", "Tip: Changes apply live without restarting."))
@@ -1322,7 +1308,9 @@ def launch_gui():
                     tr("扩展已识别", "Extension OK"),
                     tr("实时生效", "Live"),
                 )
-                icon_name = "emblem-ok-symbolic"
+                status_icon_name = "status-shield"
+                metric_icon_name = "check-circle"
+                watermark_icon_name = "check-watermark"
             else:
                 title = tr("等待 Shell 识别", "Waiting for Shell")
                 subtitle = tr("首次安装可能需要注销并重新登录", "Log out and back in after first install")
@@ -1331,7 +1319,9 @@ def launch_gui():
                     tr("等待识别", "Waiting"),
                     tr("重登生效", "Relogin"),
                 )
-                icon_name = "dialog-warning-symbolic"
+                status_icon_name = "warning-shield"
+                metric_icon_name = "warning-circle"
+                watermark_icon_name = "warning-watermark"
             if prefix:
                 subtitle = f"{prefix} · {subtitle}"
 
@@ -1345,24 +1335,14 @@ def launch_gui():
                     self._status_icon_ring.add_css_class("waiting")
 
             if self._status_icon:
-                if known and STATUS_CORRECT_SVG.exists():
-                    self._status_icon.set_from_file(str(STATUS_CORRECT_SVG))
-                else:
-                    self._status_icon.set_from_icon_name(icon_name)
-                self._status_icon.set_pixel_size(56)
+                self._set_icon_image(self._status_icon, status_icon_name, 70)
 
             if self._status_watermark_icon:
-                self._status_watermark_icon.set_from_icon_name(icon_name)
-                self._status_watermark_icon.set_pixel_size(104)
-                if known:
-                    self._status_watermark_icon.remove_css_class("waiting")
-                else:
-                    self._status_watermark_icon.add_css_class("waiting")
+                self._set_icon_image(self._status_watermark_icon, watermark_icon_name, 118)
 
             for item, text in zip(self._status_metric_items, metrics):
                 metric, metric_icon, metric_label = item
-                metric_icon.set_from_icon_name(icon_name)
-                metric_icon.set_pixel_size(18)
+                self._set_icon_image(metric_icon, metric_icon_name, 24)
                 metric_label.set_label(text)
                 if known:
                     metric.remove_css_class("waiting")
