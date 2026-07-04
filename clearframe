@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.11"
+APP_VERSION = "0.1.12"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -59,57 +59,6 @@ STALE_TITLEBAR_RE = re.compile(
 CLEARFRAME_GUI_CSS = """
 .clearframe-page {
   background-color: @window_bg_color;
-}
-
-.clearframe-status-card {
-  background-image: linear-gradient(112deg, @card_bg_color 0%, @card_bg_color 62%, alpha(#2ec27e, 0.16) 100%);
-  border: 1px solid alpha(#2ec27e, 0.22);
-  border-radius: 19px;
-  box-shadow: 0 20px 46px alpha(#000000, 0.12);
-  padding: 34px;
-}
-
-.clearframe-status-icon-ring {
-  background-color: alpha(#2ec27e, 0.12);
-  border: 1px solid alpha(#2ec27e, 0.18);
-  border-radius: 999px;
-  padding: 12px;
-}
-
-.clearframe-status-icon-ring.waiting {
-  background-color: alpha(#f5c211, 0.12);
-  border-color: alpha(#f5c211, 0.30);
-}
-
-.clearframe-status-main-title {
-  color: @window_fg_color;
-  font-size: 34px;
-  font-weight: 850;
-}
-
-.clearframe-status-subtitle {
-  color: alpha(@window_fg_color, 0.62);
-  font-size: 17px;
-}
-
-.clearframe-status-dot-matrix {
-  opacity: 1;
-}
-
-.clearframe-status-strip {
-  background-color: alpha(@window_bg_color, 0.70);
-  border: 1px solid alpha(@borders, 0.35);
-  border-radius: 14px;
-  padding: 12px 8px;
-}
-
-.clearframe-status-metric {
-  color: alpha(@window_fg_color, 0.74);
-}
-
-.clearframe-status-metric-label {
-  font-size: 18px;
-  font-weight: 650;
 }
 
 .clearframe-menu-icon {
@@ -542,7 +491,27 @@ def set_enabled_extension(uuid, enabled):
 
 
 def shell_knows_extension(uuid=EXT_UUID):
+    if not shutil.which("gnome-extensions"):
+        return False
     return run(["gnome-extensions", "info", uuid]).returncode == 0
+
+
+def extension_attention_heading():
+    if not shutil.which("gnome-extensions"):
+        return tr("扩展工具不可用", "Extension Tool Unavailable")
+    return tr("需要重新登录", "Log Out Required")
+
+
+def extension_attention_message():
+    if not shutil.which("gnome-extensions"):
+        return tr(
+            "未找到 GNOME 扩展管理工具。请确认当前会话是 GNOME，并安装 gnome-extensions 可用的相关组件后重新打开透界。",
+            "The GNOME extensions tool was not found. Make sure this is a GNOME session, install the component that provides gnome-extensions, then reopen ClearFrame.",
+        )
+    return tr(
+        "GNOME Shell 还没有识别透界扩展。请注销并重新登录，然后再次打开透界；如果重新登录后仍不可用，请重启电脑。",
+        "GNOME Shell has not recognized the ClearFrame extension yet. Log out and back in, then open ClearFrame again. If it is still unavailable after logging in again, restart the computer.",
+    )
 
 
 def shell_extension_should_run(settings):
@@ -757,11 +726,7 @@ def launch_gui():
             self._settings = None
             self._dock_scale = None
             self._styles_installed = False
-            self._status_title_label = None
-            self._status_subtitle_label = None
-            self._status_metric_items = []
-            self._status_icon_ring = None
-            self._status_icon = None
+            self._extension_attention_shown = False
             self._toast_overlay = None
             self._scrolled_window = None
             self._update_button = None
@@ -795,7 +760,6 @@ def launch_gui():
             self._add_topbar_group(page)
             self._add_window_group(page)
             self._add_note(page)
-            self._add_system_group(page)
 
             scrolled_window = Gtk.ScrolledWindow()
             scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -807,8 +771,8 @@ def launch_gui():
             toolbar_view.set_content(self._toast_overlay)
             window.set_content(toolbar_view)
 
-            self._set_status()
             window.present()
+            GLib.idle_add(self._show_extension_attention_if_needed)
 
         def _install_styles(self):
             if self._styles_installed:
@@ -935,6 +899,19 @@ def launch_gui():
             dialog.add_response("ok", tr("知道了", "OK"))
             dialog.set_default_response("ok")
             dialog.present()
+
+        def _show_extension_attention_if_needed(self):
+            if self._extension_attention_shown or not self._settings:
+                return GLib.SOURCE_REMOVE
+            if not shell_extension_should_run(self._settings) or shell_knows_extension():
+                return GLib.SOURCE_REMOVE
+
+            self._extension_attention_shown = True
+            self._show_message(
+                extension_attention_heading(),
+                extension_attention_message(),
+            )
+            return GLib.SOURCE_REMOVE
 
         def _add_toast(self, message):
             if self._toast_overlay:
@@ -1086,93 +1063,6 @@ def launch_gui():
                 adjustment.set_value(max(lower, min(maximum, adjustment.get_value() + amount)))
             return True
 
-        def _add_system_group(self, page):
-            card = Gtk.Overlay()
-            card.add_css_class("clearframe-status-card")
-
-            dot_matrix = self._icon_image("dot-matrix", 520)
-            dot_matrix.add_css_class("clearframe-status-dot-matrix")
-            dot_matrix.set_halign(Gtk.Align.END)
-            dot_matrix.set_valign(Gtk.Align.START)
-
-            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-            content.set_hexpand(True)
-
-            hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=30)
-            hero.set_valign(Gtk.Align.CENTER)
-
-            self._status_icon_ring = Gtk.CenterBox()
-            self._status_icon_ring.add_css_class("clearframe-status-icon-ring")
-            self._status_icon_ring.set_size_request(116, 116)
-            self._status_icon_ring.set_halign(Gtk.Align.CENTER)
-            self._status_icon_ring.set_valign(Gtk.Align.CENTER)
-
-            self._status_icon = self._icon_image("status-check", 72)
-            self._status_icon.set_halign(Gtk.Align.CENTER)
-            self._status_icon.set_valign(Gtk.Align.CENTER)
-            self._status_icon.set_tooltip_text(tr("配置正确", "Configuration is correct"))
-            self._status_icon_ring.set_center_widget(self._status_icon)
-
-            copy = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
-            copy.set_hexpand(True)
-            copy.set_valign(Gtk.Align.CENTER)
-
-            self._status_title_label = Gtk.Label(xalign=0)
-            self._status_title_label.add_css_class("clearframe-status-main-title")
-            self._status_title_label.set_wrap(True)
-
-            self._status_subtitle_label = Gtk.Label(xalign=0)
-            self._status_subtitle_label.add_css_class("clearframe-status-subtitle")
-            self._status_subtitle_label.set_wrap(True)
-
-            copy.append(self._status_title_label)
-            copy.append(self._status_subtitle_label)
-
-            hero.append(self._status_icon_ring)
-            hero.append(copy)
-            content.append(hero)
-
-            metrics = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            metrics.add_css_class("clearframe-status-strip")
-            self._status_metric_items = []
-            labels = (
-                tr("透明度已应用", "Applied"),
-                tr("扩展已识别", "Extension OK"),
-                tr("实时生效", "Live"),
-            )
-            for index, label in enumerate(labels):
-                metric, metric_icon, metric_label = self._status_metric(label)
-                self._status_metric_items.append((metric, metric_icon, metric_label))
-                metrics.append(metric)
-                if index < len(labels) - 1:
-                    separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-                    separator.set_margin_top(6)
-                    separator.set_margin_bottom(6)
-                    metrics.append(separator)
-            content.append(metrics)
-
-            card.set_child(content)
-            card.add_overlay(dot_matrix)
-            page.append(card)
-
-        def _status_metric(self, label):
-            metric = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
-            metric.set_halign(Gtk.Align.CENTER)
-            metric.set_valign(Gtk.Align.CENTER)
-            metric.add_css_class("clearframe-status-metric")
-            metric.set_hexpand(True)
-
-            icon = self._icon_image("check-circle", 24)
-
-            text = Gtk.Label(label=label)
-            text.add_css_class("clearframe-status-metric-label")
-            text.set_wrap(True)
-            text.set_justify(Gtk.Justification.CENTER)
-
-            metric.append(icon)
-            metric.append(text)
-            return metric, icon, text
-
         def _control_panel(self, page, title, icon_name, icon_class):
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
             card.add_css_class("clearframe-section-card")
@@ -1241,7 +1131,7 @@ def launch_gui():
             icon = self._icon_image("info", 18)
             icon.set_valign(Gtk.Align.CENTER)
 
-            text = Gtk.Label(label=tr("提示：修改设置后效果会实时生效，无需重启。", "Tip: Changes apply live without restarting."))
+            text = Gtk.Label(label=tr("提示：修改设置后通常会实时生效。", "Tip: Changes usually apply live."))
             text.set_xalign(0)
             text.set_wrap(True)
             text.set_hexpand(True)
@@ -1254,83 +1144,31 @@ def launch_gui():
             value = self._dock_scale.get_value() / 100.0 if self._dock_scale else saved_dock_transparency()
             save_dock_transparency(value)
             set_dock(active, value if active else None)
-            self._set_status(tr("Dock 设置已更新", "Dock settings updated"))
 
         def _dock_opacity_changed(self, value):
             save_dock_transparency(value)
             if dock_enabled():
                 set_dock(True, value)
-                self._set_status(tr("Dock 透明度已更新", "Dock transparency updated"))
 
         def _topbar_toggled(self, active):
             live = set_topbar(active, self._settings.get_double("topbar-opacity"))
             if active and not live:
-                self._set_status(tr("顶栏扩展已启用，重新登录后生效", "Top bar extension enabled; log out and back in to apply"))
-            else:
-                self._set_status(tr("顶栏设置已更新", "Top bar settings updated"))
+                self._show_extension_attention_if_needed()
 
         def _topbar_opacity_changed(self, value):
             self._settings.set_double("topbar-opacity", clamp(value))
             if self._settings.get_boolean("topbar-enabled"):
                 set_enabled_extension(EXT_UUID, True)
-            self._set_status(tr("顶栏透明度已更新", "Top bar transparency updated"))
 
         def _window_toggled(self, active):
             live = set_window_transparency(active, self._settings.get_double("window-opacity"))
             if active and not live:
-                self._set_status(tr("窗口整体透明已启用，重新登录后生效", "Whole-window transparency enabled; log out and back in to apply"))
-            else:
-                self._set_status(tr("窗口整体透明设置已更新", "Whole-window transparency settings updated"))
+                self._show_extension_attention_if_needed()
 
         def _window_opacity_changed(self, value):
             self._settings.set_double("window-opacity", clamp(value))
             if self._settings.get_boolean("window-enabled"):
                 set_enabled_extension(EXT_UUID, True)
-            self._set_status(tr("窗口整体透明度已更新", "Whole-window transparency updated"))
-
-        def _set_status(self, prefix=None):
-            known = shell_knows_extension()
-            if known:
-                title = tr("配置正确", "Configuration OK")
-                subtitle = tr("透明配置已完成校验", "Transparency configuration verified")
-                metrics = (
-                    tr("透明度已应用", "Applied"),
-                    tr("扩展已识别", "Extension OK"),
-                    tr("实时生效", "Live"),
-                )
-                status_icon_name = "status-check"
-                metric_icon_name = "check-circle"
-            else:
-                title = tr("等待 Shell 识别", "Waiting for Shell")
-                subtitle = tr("首次安装后可能需要重新登录", "Log out and back in after first install")
-                metrics = (
-                    tr("设置已保存", "Saved"),
-                    tr("等待识别", "Waiting"),
-                    tr("重登生效", "Relogin"),
-                )
-                status_icon_name = "status-warning"
-                metric_icon_name = "warning-circle"
-
-            self._status_title_label.set_label(title)
-            self._status_subtitle_label.set_label(subtitle)
-
-            if self._status_icon_ring:
-                if known:
-                    self._status_icon_ring.remove_css_class("waiting")
-                else:
-                    self._status_icon_ring.add_css_class("waiting")
-
-            if self._status_icon:
-                self._set_icon_image(self._status_icon, status_icon_name, 72)
-
-            for item, text in zip(self._status_metric_items, metrics):
-                metric, metric_icon, metric_label = item
-                self._set_icon_image(metric_icon, metric_icon_name, 24)
-                metric_label.set_label(text)
-                if known:
-                    metric.remove_css_class("waiting")
-                else:
-                    metric.add_css_class("waiting")
 
     app = ClearFrameApp()
     return app.run([])
