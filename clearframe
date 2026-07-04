@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.12"
+APP_VERSION = "0.1.13"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -730,6 +730,7 @@ def launch_gui():
             self._toast_overlay = None
             self._scrolled_window = None
             self._update_button = None
+            self._settings_popover_widget = None
             self._window = None
 
         def do_activate(self):
@@ -808,6 +809,7 @@ def launch_gui():
 
         def _settings_popover(self):
             popover = Gtk.Popover()
+            self._settings_popover_widget = popover
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
             box.set_margin_top(12)
             box.set_margin_bottom(12)
@@ -849,6 +851,10 @@ def launch_gui():
             popover.set_child(box)
             return popover
 
+        def _close_settings_popover(self):
+            if self._settings_popover_widget:
+                self._settings_popover_widget.popdown()
+
         def _menu_action_button(self, label, icon_name, callback):
             button = Gtk.Button()
             button.set_halign(Gtk.Align.FILL)
@@ -860,7 +866,12 @@ def launch_gui():
             content.append(image)
             content.append(text)
             button.set_child(content)
-            button.connect("clicked", callback)
+
+            def clicked(widget):
+                self._close_settings_popover()
+                callback(widget)
+
+            button.connect("clicked", clicked)
             return button
 
         def _language_changed(self, dropdown, _pspec):
@@ -876,6 +887,7 @@ def launch_gui():
 
             config["language"] = language
             save_config(config)
+            self._close_settings_popover()
             self._show_message(
                 tr("语言已保存", "Language Saved"),
                 tr("重新打开透界后会应用新的语言。", "Restart ClearFrame to apply the new language."),
