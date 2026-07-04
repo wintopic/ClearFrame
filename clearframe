@@ -722,7 +722,6 @@ def launch_gui():
     class ClearFrameApp(Adw.Application):
         def __init__(self):
             super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
-            self._updating = False
             self._settings = None
             self._dock_scale = None
             self._styles_installed = False
