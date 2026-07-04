@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.9"
+APP_VERSION = "0.1.10"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -791,11 +791,11 @@ def launch_gui():
             page.set_margin_start(42)
             page.set_margin_end(42)
 
-            self._add_system_group(page)
             self._add_dock_group(page)
             self._add_topbar_group(page)
             self._add_window_group(page)
             self._add_note(page)
+            self._add_system_group(page)
 
             scrolled_window = Gtk.ScrolledWindow()
             scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
