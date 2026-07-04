@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.10"
+APP_VERSION = "0.1.11"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -1090,7 +1090,7 @@ def launch_gui():
             card = Gtk.Overlay()
             card.add_css_class("clearframe-status-card")
 
-            dot_matrix = self._icon_image("dot-matrix", 300)
+            dot_matrix = self._icon_image("dot-matrix", 520)
             dot_matrix.add_css_class("clearframe-status-dot-matrix")
             dot_matrix.set_halign(Gtk.Align.END)
             dot_matrix.set_valign(Gtk.Align.START)
