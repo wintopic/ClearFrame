@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.8"
+APP_VERSION = "0.1.9"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -85,6 +85,11 @@ CLEARFRAME_GUI_CSS = """
   color: @window_fg_color;
   font-size: 34px;
   font-weight: 850;
+}
+
+.clearframe-status-subtitle {
+  color: alpha(@window_fg_color, 0.62);
+  font-size: 17px;
 }
 
 .clearframe-status-dot-matrix {
@@ -753,6 +758,7 @@ def launch_gui():
             self._dock_scale = None
             self._styles_installed = False
             self._status_title_label = None
+            self._status_subtitle_label = None
             self._status_metric_items = []
             self._status_icon_ring = None
             self._status_icon = None
@@ -1084,7 +1090,7 @@ def launch_gui():
             card = Gtk.Overlay()
             card.add_css_class("clearframe-status-card")
 
-            dot_matrix = self._icon_image("dot-matrix", 156)
+            dot_matrix = self._icon_image("dot-matrix", 300)
             dot_matrix.add_css_class("clearframe-status-dot-matrix")
             dot_matrix.set_halign(Gtk.Align.END)
             dot_matrix.set_valign(Gtk.Align.START)
@@ -1101,13 +1107,13 @@ def launch_gui():
             self._status_icon_ring.set_halign(Gtk.Align.CENTER)
             self._status_icon_ring.set_valign(Gtk.Align.CENTER)
 
-            self._status_icon = self._icon_image("status-shield", 72)
+            self._status_icon = self._icon_image("status-check", 72)
             self._status_icon.set_halign(Gtk.Align.CENTER)
             self._status_icon.set_valign(Gtk.Align.CENTER)
             self._status_icon.set_tooltip_text(tr("配置正确", "Configuration is correct"))
             self._status_icon_ring.set_center_widget(self._status_icon)
 
-            copy = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            copy = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
             copy.set_hexpand(True)
             copy.set_valign(Gtk.Align.CENTER)
 
@@ -1115,7 +1121,12 @@ def launch_gui():
             self._status_title_label.add_css_class("clearframe-status-main-title")
             self._status_title_label.set_wrap(True)
 
+            self._status_subtitle_label = Gtk.Label(xalign=0)
+            self._status_subtitle_label.add_css_class("clearframe-status-subtitle")
+            self._status_subtitle_label.set_wrap(True)
+
             copy.append(self._status_title_label)
+            copy.append(self._status_subtitle_label)
 
             hero.append(self._status_icon_ring)
             hero.append(copy)
@@ -1281,24 +1292,27 @@ def launch_gui():
             known = shell_knows_extension()
             if known:
                 title = tr("配置正确", "Configuration OK")
+                subtitle = tr("透明配置已完成校验", "Transparency configuration verified")
                 metrics = (
                     tr("透明度已应用", "Applied"),
                     tr("扩展已识别", "Extension OK"),
                     tr("实时生效", "Live"),
                 )
-                status_icon_name = "status-shield"
+                status_icon_name = "status-check"
                 metric_icon_name = "check-circle"
             else:
                 title = tr("等待 Shell 识别", "Waiting for Shell")
+                subtitle = tr("首次安装后可能需要重新登录", "Log out and back in after first install")
                 metrics = (
                     tr("设置已保存", "Saved"),
                     tr("等待识别", "Waiting"),
                     tr("重登生效", "Relogin"),
                 )
-                status_icon_name = "warning-shield"
+                status_icon_name = "status-warning"
                 metric_icon_name = "warning-circle"
 
             self._status_title_label.set_label(title)
+            self._status_subtitle_label.set_label(subtitle)
 
             if self._status_icon_ring:
                 if known:
