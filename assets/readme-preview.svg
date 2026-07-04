@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+  <title id="title">ClearFrame repository preview</title>
+  <desc id="desc">A polished preview card showing GNOME transparency controls for Dock, top bar, and windows.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f8fb"/>
+      <stop offset=".55" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ecfff6"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff7b45"/>
+      <stop offset="1" stop-color="#d84711"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#74e99a"/>
+      <stop offset="1" stop-color="#18b96f"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="28" flood-color="#1b2430" flood-opacity=".16"/>
+    </filter>
+    <pattern id="dots" width="18" height="18" patternUnits="userSpaceOnUse">
+      <circle cx="9" cy="9" r="1.6" fill="#2ec27e" opacity=".22"/>
+    </pattern>
+    <radialGradient id="dotFade" cx="1" cy="0" r=".95">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset=".62" stop-color="#fff"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="dotsMask">
+      <rect x="0" y="0" width="1200" height="640" fill="url(#dotFade)"/>
+    </mask>
+  </defs>
+
+  <rect width="1200" height="640" rx="42" fill="url(#page)"/>
+  <rect x="610" y="34" width="530" height="260" fill="url(#dots)" mask="url(#dotsMask)" opacity=".9"/>
+
+  <g transform="translate(76 84)">
+    <rect x="0" y="0" width="1048" height="472" rx="32" fill="#ffffff" filter="url(#softShadow)"/>
+    <rect x="0" y="0" width="1048" height="472" rx="32" fill="none" stroke="#e8edf3"/>
+
+    <g transform="translate(58 54)">
+      <rect x="0" y="0" width="64" height="64" rx="18" fill="url(#green)"/>
+      <path d="m19 33 10 10 18-22" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="92" y="29" fill="#20242c" font-family="Inter, Cantarell, Arial, sans-serif" font-size="34" font-weight="800">透界 ClearFrame</text>
+      <text x="92" y="62" fill="#687383" font-family="Inter, Cantarell, Arial, sans-serif" font-size="20">GNOME transparency control, tidy and immediate.</text>
+    </g>
+
+    <g transform="translate(58 156)">
+      <g>
+        <rect width="932" height="78" rx="20" fill="#f7f9fc" stroke="#e7ebf1"/>
+        <rect x="24" y="22" width="34" height="34" rx="10" fill="#dcecff"/>
+        <path d="M36 32h10v12H36zM32 46h18M39 48v6" fill="none" stroke="#3584e4" stroke-width="3" stroke-linecap="round"/>
+        <text x="78" y="48" fill="#2b3038" font-family="Inter, Cantarell, Arial, sans-serif" font-size="22" font-weight="750">Dock</text>
+        <line x1="192" y1="39" x2="738" y2="39" stroke="#d5dae1" stroke-width="8" stroke-linecap="round"/>
+        <line x1="192" y1="39" x2="704" y2="39" stroke="url(#accent)" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="720" cy="39" r="13" fill="#ffffff" stroke="#cfd6df"/>
+        <rect x="824" y="24" width="58" height="30" rx="15" fill="url(#accent)"/>
+        <circle cx="867" cy="39" r="12" fill="#f4f6f8"/>
+      </g>
+
+      <g transform="translate(0 104)">
+        <rect width="932" height="78" rx="20" fill="#f7f9fc" stroke="#e7ebf1"/>
+        <rect x="24" y="22" width="34" height="34" rx="10" fill="#efdff4"/>
+        <path d="M34 32h16v14H34zM30 36h4M50 36h4M30 44h4M50 44h4" fill="none" stroke="#9141ac" stroke-width="3" stroke-linecap="round"/>
+        <text x="78" y="48" fill="#2b3038" font-family="Inter, Cantarell, Arial, sans-serif" font-size="22" font-weight="750">Top Bar</text>
+        <line x1="192" y1="39" x2="738" y2="39" stroke="#d5dae1" stroke-width="8" stroke-linecap="round"/>
+        <line x1="192" y1="39" x2="704" y2="39" stroke="url(#accent)" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="720" cy="39" r="13" fill="#ffffff" stroke="#cfd6df"/>
+        <rect x="824" y="24" width="58" height="30" rx="15" fill="url(#accent)"/>
+        <circle cx="867" cy="39" r="12" fill="#f4f6f8"/>
+      </g>
+
+      <g transform="translate(0 208)">
+        <rect width="932" height="78" rx="20" fill="#f7f9fc" stroke="#e7ebf1"/>
+        <rect x="24" y="22" width="34" height="34" rx="10" fill="#e3efff"/>
+        <path d="M34 33h16v16H34zM42 33v16M34 41h16" fill="none" stroke="#3584e4" stroke-width="3" stroke-linecap="round"/>
+        <text x="78" y="48" fill="#2b3038" font-family="Inter, Cantarell, Arial, sans-serif" font-size="22" font-weight="750">Windows</text>
+        <line x1="192" y1="39" x2="738" y2="39" stroke="#d5dae1" stroke-width="8" stroke-linecap="round"/>
+        <line x1="192" y1="39" x2="330" y2="39" stroke="url(#accent)" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="344" cy="39" r="13" fill="#ffffff" stroke="#cfd6df"/>
+        <rect x="824" y="24" width="58" height="30" rx="15" fill="#d5dae1"/>
+        <circle cx="840" cy="39" r="12" fill="#f4f6f8"/>
+      </g>
+    </g>
+
+    <g transform="translate(58 414)">
+      <rect width="932" height="1" fill="#edf0f4"/>
+      <text x="0" y="38" fill="#687383" font-family="Inter, Cantarell, Arial, sans-serif" font-size="18">GTK/libadwaita app · bundled GNOME Shell extension · GitHub Release updates</text>
+    </g>
+  </g>
+</svg>
