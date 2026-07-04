@@ -18,7 +18,7 @@ from pathlib import Path
 APP_ID = "local.win.ClearFrame"
 APP_NAME_EN = "ClearFrame"
 APP_NAME_ZH = "透界"
-APP_VERSION = "0.1.7"
+APP_VERSION = "0.1.8"
 APP_REPOSITORY_OWNER = "wintopic"
 APP_REPOSITORY_NAME = "ClearFrame"
 APP_REPOSITORY_URL = f"https://github.com/{APP_REPOSITORY_OWNER}/{APP_REPOSITORY_NAME}"
@@ -757,6 +757,7 @@ def launch_gui():
             self._status_icon_ring = None
             self._status_icon = None
             self._toast_overlay = None
+            self._scrolled_window = None
             self._update_button = None
             self._window = None
 
@@ -793,6 +794,7 @@ def launch_gui():
             scrolled_window = Gtk.ScrolledWindow()
             scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
             scrolled_window.set_child(page)
+            self._scrolled_window = scrolled_window
 
             self._toast_overlay = Adw.ToastOverlay()
             self._toast_overlay.set_child(scrolled_window)
@@ -1044,6 +1046,13 @@ def launch_gui():
             scale.set_hexpand(True)
             scale.set_size_request(190, -1)
             scale.add_css_class("clearframe-scale")
+            scroll = Gtk.EventControllerScroll.new(
+                Gtk.EventControllerScrollFlags.HORIZONTAL
+                | Gtk.EventControllerScrollFlags.VERTICAL
+            )
+            scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            scroll.connect("scroll", self._redirect_scale_scroll)
+            scale.add_controller(scroll)
 
             value_label = Gtk.Label(label=str(round(clamp(value) * 100)))
             value_label.add_css_class("clearframe-control-value")
@@ -1059,6 +1068,17 @@ def launch_gui():
             row.append(scale)
             row.append(value_label)
             return row, scale
+
+        def _redirect_scale_scroll(self, _controller, _dx, dy):
+            if self._scrolled_window and dy:
+                adjustment = self._scrolled_window.get_vadjustment()
+                lower = adjustment.get_lower()
+                upper = adjustment.get_upper()
+                page = adjustment.get_page_size()
+                maximum = max(lower, upper - page)
+                amount = dy * 48 if abs(dy) <= 3 else dy
+                adjustment.set_value(max(lower, min(maximum, adjustment.get_value() + amount)))
+            return True
 
         def _add_system_group(self, page):
             card = Gtk.Overlay()
