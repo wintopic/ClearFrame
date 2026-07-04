@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/readme-preview.svg" alt="ClearFrame preview">
+  <img width="810" height="810" alt="image" src="https://github.com/user-attachments/assets/1e4c74ba-73a6-48cb-bdb7-d42bbfd9c29a" />
 </p>
 
 ## Highlights
